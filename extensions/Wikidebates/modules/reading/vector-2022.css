@@ -1,0 +1,37 @@
+/*	Wikidébats — mode lecture — Vector 2022 */
+
+.skin-vector-2022,
+.skin-vector {
+	--wk-reading-h1-title-margin-left: 0;
+	--wk-reading-h1-margin-right: 2em;
+	--wk-reading-h1-title-line-height: 1.35;
+	--wk-reading-h1-title-icon-top: calc(0.5 * var( --wk-reading-h1-title-line-height ) * 1em);
+}
+
+html.wk-reading-active .mw-body-header.vector-page-titlebar,
+html.wk-reading-active .vector-page-toolbar,
+html.wk-reading-active .vector-column-end,
+html.wk-reading-active .vector-header-container,
+html.wk-reading-active #mw-panel-toc,
+html.wk-reading-active .mw-footer-container {
+	display: none !important;
+}
+
+.wk-reading-h1__actions {
+	position: static;
+}
+
+.wk-h1-btn.wk-icon-more {
+	width: 1.5em;
+}
+
+.wk-reading-close {
+	position: fixed;
+	top: 18px;
+	right: 16px;
+	z-index: 100000;
+}
+
+#wk-reading-mode .wk-reading-panel.is-loading {
+	min-height: 100%;
+}

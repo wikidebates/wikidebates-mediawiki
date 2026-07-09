@@ -1,0 +1,21 @@
+diff --git a/includes/PF_ValuesUtils.php b/includes/PF_ValuesUtils.php
+--- a/includes/PF_ValuesUtils.php
++++ b/includes/PF_ValuesUtils.php
+@@ -36,6 +36,16 @@ public static function getRemoteDataTypeAndPossiblySetAutocompleteValues( $autoc
+ 			// Autocompletion from URL is always done remotely.
+ 			return $autocompleteFieldType;
+ 		}
++
++		if (
++			$autocompleteFieldType === 'category' &&
++			!array_key_exists( 'values dependent on', $field_args ) &&
++			!array_key_exists( 'mapping template', $field_args ) &&
++			!array_key_exists( 'mapping property', $field_args )
++		) {
++			// For category-based autocompletion, avoid loading the full value list
++			// during form initialization; always use remote autocompletion instead.
++			return $autocompleteFieldType;
++		}
+ 
+ 		if ( $autocompletionSource == '' ) {
+ 			// No autocompletion.

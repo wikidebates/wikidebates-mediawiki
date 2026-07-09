@@ -84,8 +84,7 @@
 		"wikimedia/timestamp": "4.1.1",
 		"wikimedia/wait-condition-loop": "2.0.2",
 		"wikimedia/wrappedstring": "4.0.1",
-<<<<<<< HEAD
-		"wikimedia/xmp-reader": "0.9.4",
+		"wikimedia/xmp-reader": "0.10.2",
 		"zordius/lightncandy": "1.2.6",
 		"mediawiki/semantic-media-wiki": "^6.0",
 		"mediawiki/semantic-result-formats": "^5.0",
@@ -93,10 +92,6 @@
 		"mediawiki/semantic-extra-special-properties": "^4.0",
 		"pimple/pimple": "^3.5",
 		"mediawiki/semantic-scribunto": "~2.3"
-=======
-		"wikimedia/xmp-reader": "0.10.2",
-		"zordius/lightncandy": "1.2.6"
->>>>>>> 73fbae378e2dcedc4b2f14c02804396c17a68aa5
 	},
 	"require-dev": {
 		"composer/spdx-licenses": "1.5.8",

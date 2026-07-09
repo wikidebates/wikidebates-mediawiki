@@ -1,0 +1,339 @@
+{
+	"name": "Wikidebates",
+	"version": "1.0.0",
+	"author": [
+		"Wikidébats"
+	],
+	"url": "https://example.invalid/",
+	"descriptionmsg": "wikidebates-desc",
+	"license-name": "MIT",
+	"type": "other",
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\Wikidebates\\": "src/"
+	},
+	"Hooks": {
+		"BeforePageDisplay": "MediaWiki\\Extension\\Wikidebates\\Hooks::onBeforePageDisplay",
+		"ParserFirstCallInit": "MediaWiki\\Extension\\Wikidebates\\Hooks::onParserFirstCallInit",
+		"PageSaveComplete": "MediaWiki\\Extension\\Wikidebates\\Hooks::onPageSaveComplete",
+		"AuthChangeFormFields": "MediaWiki\\Extension\\Wikidebates\\Hooks::onAuthChangeFormFields"
+	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "modules",
+		"remoteExtPath": "Wikidebates/modules"
+	},
+	"ResourceModules": {
+		"ext.wikidebates.common.core": {
+			"scripts": [
+				"common/core.js"
+			],
+			"dependencies": [
+				"jquery"
+			]
+		},
+		"ext.wikidebates.common.i18n": {
+			"scripts": [
+				"common/i18n.js"
+			],
+			"dependencies": [
+				"jquery",
+				"mediawiki.util"
+			]
+		},
+		"ext.wikidebates.common.parse": {
+			"scripts": [
+				"common/parse.js"
+			],
+			"dependencies": [
+				"jquery",
+				"mediawiki.api"
+			]
+		},
+		"ext.wikidebates.features.scan": {
+			"scripts": [
+				"features/scan.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n"
+			]
+		},
+		"ext.wikidebates.features.hover": {
+			"scripts": [
+				"features/hover.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n",
+				"ext.wikidebates.common.parse"
+			]
+		},
+		"ext.wikidebates.features.autoId": {
+			"scripts": [
+				"features/autoId.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core"
+			]
+		},
+		"ext.wikidebates.reading.core": {
+			"scripts": [
+				"reading/core.js"
+			],
+			"dependencies": [
+				"jquery",
+				"mediawiki.util",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n",
+				"ext.wikidebates.common.parse"
+			]
+		},
+		"ext.wikidebates.reading.styles.base": {
+			"styles": [
+				"reading/base.css"
+			]
+		},
+		"ext.wikidebates.reading.styles.vector": {
+			"styles": [
+				"reading/vector-2022.css"
+			],
+			"skins": [
+				"vector",
+				"vector-2022"
+			]
+		},
+		"ext.wikidebates.reading.styles.minerva": {
+			"styles": [
+				"reading/minerva.css"
+			],
+			"skins": [
+				"minerva",
+				"minervaneue",
+				"minervaNeue"
+			]
+		},
+		"ext.wikidebates.reading.ui.vector": {
+			"scripts": [
+				"reading/ui.vector.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.reading.core",
+				"ext.wikidebates.reading.styles.base",
+				"ext.wikidebates.reading.styles.vector"
+			],
+			"skins": [
+				"vector",
+				"vector-2022"
+			]
+		},
+		"ext.wikidebates.reading.ui.minerva": {
+			"scripts": [
+				"reading/ui.minerva.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.reading.core",
+				"ext.wikidebates.reading.styles.base",
+				"ext.wikidebates.reading.styles.minerva"
+			],
+			"skins": [
+				"minerva",
+				"minervaneue",
+				"minervaNeue"
+			]
+		},
+		"ext.wikidebates.boot.vector": {
+			"scripts": [
+				"boot/vector.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n",
+				"ext.wikidebates.features.scan"
+			],
+			"skins": [
+				"vector",
+				"vector-2022"
+			]
+		},
+		"ext.wikidebates.boot.minerva": {
+			"scripts": [
+				"boot/minerva.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n",
+				"ext.wikidebates.features.scan"
+			],
+			"skins": [
+				"minerva",
+				"minervaneue",
+				"minervaNeue"
+			]
+		},
+		"ext.wikidebates.i18n.fr": {
+			"scripts": [
+				"i18n/fr.js"
+			],
+			"skins": [
+				"vector",
+				"vector-2022",
+				"minerva",
+				"minervaneue",
+				"minervaNeue"
+			]
+		},
+		"ext.wikidebates.features.frCollapsible": {
+			"scripts": [
+				"features/frCollapsible.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core"
+			]
+		},
+		"ext.wikidebates.features.moreContent": {
+			"scripts": [
+				"features/moreContent.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n",
+				"ext.wikidebates.common.parse"
+			]
+		},
+		"ext.wikidebates.features.smwTooltips": {
+			"scripts": [
+				"features/smwTooltips.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core"
+			]
+		},
+		"ext.wikidebates.features.editForm": {
+			"scripts": [
+				"features/editForm.js"
+			],
+			"dependencies": [
+				"jquery",
+				"mediawiki.util",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n"
+			]
+		},
+		"ext.wikidebates.view.ns0": {
+			"scripts": [
+				"features/view.ns0.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core"
+			]
+		},
+		"ext.wikidebates.view.ns0.idle": {
+			"scripts": [
+				"features/view.ns0.idle.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n",
+				"ext.wikidebates.common.parse",
+				"ext.wikidebates.features.autoId"
+			]
+		},
+		"ext.wikidebates.vector.refTooltips": {
+			"scripts": [
+				"vector/refTooltips.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n"
+			],
+			"skins": [
+				"vector",
+				"vector-2022"
+			]
+		},
+		"ext.wikidebates.vector.ns0.idleTooltips": {
+			"scripts": [
+				"vector/ns0.idleTooltips.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n"
+			],
+			"skins": [
+				"vector",
+				"vector-2022"
+			]
+		},
+		"ext.wikidebates.vector.headerButtons": {
+			"scripts": [
+				"vector/headerButtons.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n"
+			],
+			"skins": [
+				"vector",
+				"vector-2022"
+			]
+		},
+		"ext.wikidebates.minerva.headerButtons": {
+			"scripts": [
+				"minerva/headerButtons.js"
+			],
+			"dependencies": [
+				"jquery",
+				"ext.wikidebates.common.core",
+				"ext.wikidebates.common.i18n"
+			],
+			"skins": [
+				"minerva",
+				"minervaneue",
+				"minervaNeue"
+			]
+		},
+		"ext.wikidebates.i18n.en": {
+			"scripts": [
+				"i18n/en.js"
+			],
+			"skins": [
+				"vector",
+				"vector-2022",
+				"minerva",
+				"minervaneue",
+				"minervaNeue"
+			]
+		}
+	},
+	"ExtensionMessagesFiles": {
+		"WikidebatesMagic": "i18n/magic.php"
+	},
+	"MessagesDirs": {
+		"Wikidebates": [
+			"i18n"
+		]
+	},
+	"manifest_version": 2,
+	"AuthManagerAutoConfig": {
+		"preauth": {
+			"MediaWiki\\Extension\\Wikidebates\\RequireEmailPreAuthenticationProvider": {
+				"class": "MediaWiki\\Extension\\Wikidebates\\RequireEmailPreAuthenticationProvider",
+				"sort": 1
+			}
+		}
+	}
+}

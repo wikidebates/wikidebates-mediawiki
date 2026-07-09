@@ -1,0 +1,201 @@
+/*	Wikidébats — mode lecture — Minerva */
+
+.skin-minerva {
+	--wk-reading-panel-padding: 0;
+	--wk-reading-content-padding: 0 16px 3em 16px;
+	--wk-reading-stack-padding: 0 0.5em 1em 0.5em;
+	--wk-reading-left-padding: 0;
+	--wk-reading-siblings-list-margin-left: 1em;
+	--wk-reading-h1-padding: 0.75em 2em 0.75em 0.25em;
+	--wk-reading-h1-title-size: 125%;
+	--wk-reading-h1-title-line-height: 1.25;
+	--wk-reading-h1-title-padding-left: calc( var( --wd-arg-icon-size ) + 0.35em );
+	--wk-reading-h1-title-margin-left: 2.25em;
+	--wk-reading-h1-title-icon-size: 20px;
+	--wk-reading-h1-title-icon-top: calc(0.5 * var( --wk-reading-h1-title-line-height ) * 1em);
+	--wk-reading-h2-size: 110%;
+	--wk-reading-menu-link-color: var( --color-subtle, #54595d );
+}
+
+.wk-reading-active .pre-content.heading-holder,
+.wk-reading-active .header-container,
+.wk-reading-active .indicator {
+	display: none !important;
+}
+
+.wk-reading-active .collapsible-block {
+	display: block !important;
+}
+
+#wk-reading-mode {
+	position: fixed;
+	height: 100dvh;
+}
+
+.wk-reading-h1 {
+	z-index: 50;
+}
+
+.wk-reading-h1__actions {
+	position: absolute;
+	top: 0.5em;
+	right: 0;
+}
+
+.wk-reading-h1.is-collapsed .wk-reading-h1__title {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 1;
+}
+
+#wk-reading-mode .wk-reading-panel {
+	min-height: 100%;
+}
+
+.wk-reading-active .mw-headline {
+	order: 2;
+	flex: 1;
+}
+
+.wk-h1-menu {
+	margin-top: 0.45em;
+}
+
+.wk-reading-panel .wk-reading-h1 {
+	display: flex;
+	align-items: center;
+}
+
+.wk-reading-siblings {
+	padding: 0 1em 0.5em 0.5em;
+}
+
+.is-root .wk-reading__title {
+	padding-top: 0;
+}
+
+.wk-reading-close {
+	position: fixed;
+	z-index: 100000;
+	opacity: 0.6;
+}
+
+.wk-reading-close svg {
+	width: 13px;
+	height: 13px;
+}
+
+.wk-reading-close svg path {
+	stroke-width: 1.75;
+}
+
+.wk-reading-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	opacity: 0;
+	pointer-events: none;
+	background: rgba( 0, 0, 0, 0.35 );
+	transition: opacity 260ms cubic-bezier( .32, .72, 0, 1 );
+}
+
+.wk-reading-overlay.is-on {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.wk-reading-left {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 1001;
+	max-height: 70vh;
+	overflow: auto;
+	transform: translate3d( 0, 110%, 0 );
+	transition: transform 260ms cubic-bezier( .32, .72, 0, 1 );
+	will-change: transform;
+	contain: layout paint style;
+	backface-visibility: hidden;
+	background: var( --background-color, #fff );
+	border-top-left-radius: 16px;
+	border-top-right-radius: 16px;
+	box-shadow: 0 -8px 24px rgba( 0, 0, 0, 0.15 ), 0 -2px 6px rgba( 0, 0, 0, 0.08 );
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+	touch-action: pan-y;
+}
+
+.wk-reading-left.is-open {
+	transform: translate3d( 0, 0, 0 );
+}
+
+.wk-reading-left:not( .is-open ) {
+	pointer-events: none;
+}
+
+.wk-reading-left__header {
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	padding: 6px 12px 4px 12px;
+	background: inherit;
+	touch-action: none;
+}
+
+.wk-reading-left__handle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 14px;
+	cursor: pointer;
+}
+
+.wk-reading-left__handle::before {
+	content: '';
+	display: block;
+	width: 44px;
+	height: 3px;
+	border-radius: 999px;
+	opacity: 0.35;
+	background: currentColor;
+}
+
+.wk-reading-left__handle:active::before {
+	opacity: 0.55;
+	transform: scaleX( 1.1 );
+}
+
+.wk-reading-navbtn {
+	position: fixed;
+	right: 2em;
+	bottom: 2em;
+	z-index: 1002;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 50px;
+	height: 50px;
+	box-sizing: border-box;
+	border: none;
+	border-radius: 50%;
+	background-color: rgba( 255, 255, 255, 1 );
+	box-shadow: 0 2px 6px rgba( 0, 0, 0, 0.25 );
+	cursor: pointer;
+}
+
+.wk-reading-navbtn img {
+	display: block;
+	width: 19px;
+}
+
+.wk-reading-navbtn.is-hidden-when-open {
+	opacity: 0;
+	pointer-events: none;
+	visibility: hidden;
+}
+
+.wk-h1-more {
+    margin-right: 0.25em;
+}

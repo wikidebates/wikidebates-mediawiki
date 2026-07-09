@@ -92,3 +92,83 @@ Thumbs.db
 docker-compose.override.yml
 .env
 /.stylelintcache
+
+# Backups / dumps / archives
+*.sql
+*.sql.gz
+*.dump
+*.dump.gz
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.bak
+*.old
+*.backup
+backup/
+backups/
+dumps/
+
+# Secrets / credentials
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.password
+*.secret
+secrets/
+
+/images/
+/sitemaps/
+
+# Configurations locales / secrets
+LocalSettings*.php
+LocalSettings*.php.*
+LocalSettings*.bak
+LocalSettings*.old
+LocalSettings*.save
+LocalSettings*.copie
+LocalSettings*.copy
+LocalSettings*.txt
+LocalSettings\ \(Copie\).php
+
+# Logs
+*.log
+*.log.*
+debug.log*
+WikiDebatsAutoParentLink.log
+Wikidebates-AutoParentLink.log
+
+# Dépendances installées
+/vendor/
+/node_modules/
+
+# Images téléversées / générées
+/images/
+
+# Sauvegardes locales
+/extensions/Sauvegardes/
+/Sauvegardes/
+/sauvegardes/
+/backup/
+/backups/
+/dumps/
+
+# Archives / dumps
+*.sql
+*.sql.gz
+*.dump
+*.dump.gz
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.bak
+*.old
+*.backup
+
+# Fichiers temporaires
+git-add-dry-run.txt

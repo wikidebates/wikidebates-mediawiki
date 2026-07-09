@@ -1,0 +1,277 @@
+/*	Wikidébats — mode lecture — base commune */
+
+:root {
+	--wk-reading-panel-padding: 1.5em 0 2em 2em;
+	--wk-reading-content-padding: 0 3em 1em 1em;
+	--wk-reading-stack-padding: 0 0 1em 0;
+	--wk-reading-left-padding: 0.5em;
+	--wk-reading-siblings-list-margin-left: 1.5em;
+	--wk-reading-h1-padding: 0 0 0.5em 0;
+	--wk-reading-h1-title-size: 140%;
+	--wk-reading-h1-title-line-height: 1.35;
+	--wk-reading-h1-title-padding-left: calc( var( --wk-reading-h1-title-icon-size ) + 0.45em );
+	--wk-reading-h1-title-margin-left: 0;
+	--wk-reading-h1-title-icon-size: 23px;
+	--wk-reading-h1-title-icon-top: initial;
+	--wk-reading-h2-size: 125%;
+	--wk-reading-menu-link-color: var( --color-progressive );
+}
+
+html.wk-reading-active,
+body.wk-reading-active {
+	overflow: hidden;
+}
+
+#wk-reading-mode {
+	position: absolute;
+	inset: 0;
+	bottom: auto;
+	height: 100vh;
+	z-index: 999;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	overflow-y: auto;
+	background: var( --background-color-neutral-subtle );
+	-webkit-overflow-scrolling: touch;
+}
+
+#wk-reading-mode .wk-reading-panel {
+	width: 100%;
+	padding: var( --wk-reading-panel-padding );
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	background: var( --background-color-base, #fff );
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+}
+
+#wk-reading-content {
+	min-height: 0;
+	overflow: auto;
+	padding: var( --wk-reading-content-padding );
+	-webkit-overflow-scrolling: touch;
+}
+
+#wk-reading-stack {
+	display: flex;
+	flex: 0 0 auto;
+	flex-direction: column;
+	padding: var( --wk-reading-stack-padding );
+}
+
+#wk-reading-stack .wk-reading__item {
+	position: sticky;
+	z-index: 2;
+	cursor: pointer;
+	user-select: none;
+}
+
+#wk-reading-stack .is-root .wk-reading__title,
+.is-root .wk-reading__title {
+	padding-left: 0.25em;
+	margin-left: 0;
+	border-left: none;
+	--wd-font-size: 125%;
+}
+
+#wk-reading-stack .wk-reading__title {
+	margin-left: 1em;
+	padding: 10px 12px 10px 12px;
+	border-bottom: 1px solid var( --border-color-base, #a2a9b1 );
+	border-left: 2px solid var( --border-color-base, #a2a9b1 );
+	box-shadow: 0 1px 2px rgba( 0, 0, 0, 0.06 );
+	font-size: var( --wd-font-size );
+	line-height: var( --wd-line-height );
+	--wd-arg-icon-size: 16px;
+	--wd-arg-icon-left: calc( -1 * var( --wd-arg-icon-size ) / 2 - 1px );
+	--wd-line-height: 1.2;
+	--wd-icon-top: 50%;
+	--wd-font-size: 100%;
+}
+
+#wk-reading-stack .wk-reading__item:hover {
+	text-decoration: underline;
+}
+
+#wk-reading-stack .wk-reading__item.is-current {
+	font-weight: bold;
+	cursor: default;
+	text-decoration: none;
+}
+
+.wk-reading-panel h2 {
+	font-size: var( --wk-reading-h2-size );
+}
+
+.wk-reading-panel h2.wk-icon-argument {
+	--wd-icon-size: 21px;
+	--wd-icon-gap: 0.4em;
+}
+
+.wk-reading-h1 {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	display: flex;
+	align-items: flex-start;
+	margin-right: var( --wk-reading-h1-margin-right );
+	padding: var( --wk-reading-h1-padding );
+	border-bottom: 1px solid var( --border-color-base, #a2a9b1 );
+}
+
+.wk-reading-h1__title {
+	position: relative;
+	display: block;
+	margin-left: var( --wk-reading-h1-title-margin-left );
+	padding-left: var( --wk-reading-h1-title-padding-left );
+	font-size: var( --wk-reading-h1-title-size );
+	font-weight: bold;
+	line-height: var( --wk-reading-h1-title-line-height );
+	--wd-arg-icon-size: var( --wk-reading-h1-title-icon-size );
+	--wd-icon-top: var( --wk-reading-h1-title-icon-top );
+}
+
+.wk-reading-h1__actions {
+	display: flex;
+}
+
+.wk-h1-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 2em;
+	height: 2em;
+	cursor: pointer;
+	opacity: 0.9;
+}
+
+.wk-h1-more {
+	position: relative;
+}
+
+.wk-h1-menu {
+	position: absolute;
+	top: 100%;
+	right: 0;
+	margin-top: 0.5em;
+	margin-right: 0.25em;
+	display: flex;
+	flex-direction: column;
+	min-width: max-content;
+	padding: 0.4em 0;
+	border: 1px solid var( --border-color-base, #a2a9b1 );
+	border-radius: 6px;
+	box-shadow: 0 4px 16px rgba( 0, 0, 0, 0.12 );
+	background-color: var( --background-color-base );
+	transition: background-color 0.2s, color 0.2s;
+}
+
+.wk-h1-menu[ hidden ] {
+	display: none;
+}
+
+.wk-h1-menu a {
+	margin: 0.5em 1em;
+	color: var( --wk-reading-menu-link-color );
+	text-indent: 1.8em;
+	--wd-icon-width: 18px;
+	--wd-icon-height: 18px;
+	--wd-icon-top: 50%;
+}
+
+.wk-h1-menu .wk-icon-before {
+	--wd-icon-width: 14px;
+}
+
+.wk-h1-btn.wk-icon-more:hover {
+	opacity: 1;
+}
+
+.wk-h1-btn.wk-icon-more:active,
+.wk-h1-btn.wk-icon-more[ aria-expanded="true" ] {
+	opacity: 0.6;
+}
+
+.wk-reading-siblings__current {
+	font-weight: bold;
+	cursor: default;
+}
+
+.wk-reading-siblings__label {
+	margin: 1em 0 0.5em 0.5em;
+	font-size: 94%;
+	font-weight: bold;
+}
+
+.wk-reading-siblings__item .wk-reading-siblings__title {
+	line-height: 1.2;
+	--wd-line-height: 1.2;
+	--wd-arg-icon-size: 13px;
+	--wd-arg-icon-left: calc( -1 * var( --wd-arg-icon-size ) / 2 - 11px );
+	--wd-icon-top: calc( 0.5 * var( --wd-line-height ) * 1em );
+}
+
+ul.wk-reading-siblings__list {
+	margin-left: var( --wk-reading-siblings-list-margin-left );
+	list-style-type: none;
+}
+
+li.wk-reading-siblings__item {
+	margin-bottom: 0.5em;
+	font-size: 85%;
+}
+
+#wk-reading-left {
+	padding: var( --wk-reading-left-padding );
+	background-color: var( --background-color-base, #fff );
+}
+
+h2.wk-icon-before {
+	position: relative;
+	--wd-icon-width: var( --wd-icon-size );
+	--wd-icon-height: var( --wd-icon-size );
+}
+
+.wk-reading-content h2 .wk-icon-before {
+	padding-left: calc( var( --wd-icon-gap ) + var( --wd-icon-size ) );
+	--wd-icon-gap: 0.35em;
+	--wd-icon-size: 22px;
+	--wd-arg-icon-size: 20px;
+}
+
+.wk-reading-close {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+	opacity: 0.8;
+	transition: opacity 120ms ease;
+}
+
+.wk-reading-close svg {
+	width: 14px;
+	height: 14px;
+}
+
+.wk-reading-close svg path {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.25;
+	stroke-linecap: round;
+}
+
+#wk-reading-close:hover {
+	opacity: 1;
+}
+
+#wk-reading-close:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
+}

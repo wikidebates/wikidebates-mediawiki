@@ -1,0 +1,1026 @@
+
+
+:root {
+	--pf-field-max-width: 42rem;
+	--pf-field-padding-y: 0.5rem;
+	--pf-field-padding-x: 0.75rem;
+	--pf-form-gap: 1rem;
+	--pf-form-row-gap: 0.35rem;
+	--pf-form-label-width: 16rem;
+	--pf-form-border-radius: 10px;
+	--pf-form-border-color: #c8ccd1;
+	--pf-form-surface: #fff;
+	--pf-form-surface-subtle: #f8f9fa;
+	--pf-form-shadow: 0 1px 2px rgba( 0, 0, 0, 0.05 );
+}
+/**
+ * The main CSS file for the Page Forms extension.
+ */
+
+@import "mediawiki.skin.variables.less";
+
+/* Override "width: 100%" setting in standard MediaWiki skins */
+textarea.createboxInput {
+/*	width: auto;*/
+}
+textarea.mandatoryField {
+	width: auto;
+}
+
+#loadingMask {
+	position: absolute;
+	z-index: 100;
+}
+
+/* Used in 'create template' page */
+.fieldBox {
+	border: 1px solid @border-color-base;
+	background: @background-color-neutral-subtle;
+	padding: 10px 20px 10px 10px;
+	margin: 0 20px 20px 20px;
+	position: relative;
+	border-radius: var( --pf-form-border-radius );
+}
+
+/* Used in form pages */
+.pf-formlayout {
+	display: grid;
+	gap: var( --pf-form-row-gap );
+	width: 100%;
+	padding: 0;
+	margin: 0;
+}
+
+.pf-formlayout__row {
+	display: grid;
+	grid-template-columns: minmax( 12rem, var( --pf-form-label-width ) ) minmax( 0, 1fr );
+	gap: var( --pf-form-gap );
+	align-items: start;
+	background: transparent;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.pf-formlayout__row--mandatory {
+	padding-inline-start: 0;
+}
+
+.pf-formlayout__row--disabled {
+	opacity: 0.82;
+}
+
+.pf-formlayout > .pf-formlayout__row + .pf-formlayout__row {
+	margin-top: 0;
+}
+
+.pf-formlayout__row > * {
+	min-width: 0;
+}
+
+.pf-formlayout__label {
+	min-width: 0;
+	text-align: left;
+	align-self: center;
+	display: flex;
+	align-items: center;
+	font-weight: bold;
+}
+
+.pf-formlayout__label-text {
+	display: inline-block;
+	font-weight: 600;
+	line-height: 1.4;
+	color: @color-emphasized;
+}
+
+.pf-formlayout__label-text--mandatory::after {
+	content: ' *';
+	color: #d73333;
+}
+
+.pf-formlayout__tooltip {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.1rem;
+	height: 1.1rem;
+	border-radius: 999px;
+	background: @background-color-interactive-subtle;
+	color: @color-subtle;
+	font-size: 0.8rem;
+	cursor: help;
+	flex: 0 0 auto;
+}
+
+.pf-formlayout__input {
+	min-width: 0;
+	display: grid;
+	gap: 0.5rem;
+	align-content: start;
+}
+
+.pf-formlayout__input[data-input-type="checkbox"],
+.pf-formlayout__input[data-input-type="checkboxes"],
+.pf-formlayout__input[data-input-type="radio"],
+.pf-formlayout__input[data-input-type="radiobutton"] {
+	gap: 0.35rem;
+}
+/* another possible layout */
+table.formtable2 {
+	width: 100%;
+	margin: 5px 0 0;
+	padding: 0.3em 0.2em 0.2em 0.2em;
+	background: transparent;
+	border-collapse: collapse;
+}
+table.formtable2 th, table.formtable2 td {
+	vertical-align: top;
+}
+/* this makes sure that in long lists with checkboxes the checkbox and the
+corresponding label are not torn apart by a line break */
+span.checkboxSpan {
+	/* 'nowrap' doesn't work in IE, unfortunately */
+	/* white-space: nowrap; */
+	float: left;
+	padding-right: 9px;
+}
+/* the "remove" and "add another" buttons used for multiple templates */
+input.remove, input.addanother {
+}
+/* this selects text and dropdown list inputs that have been set to
+mandatory */
+input.mandatoryField, select.mandatoryField {
+	/* (suggested formatting) */
+	/* border: 1px #d72227 solid; */
+}
+/* a span around radiobuttons and checkboxes that are set to mandatory,
+since some browsers don't support formatting of these elements, and a
+span around a set of them looks nicer anyway */
+span.mandatoryFieldsSpan {
+	/* (suggested formatting) */
+	/* border: 1px #d72227 solid;
+	padding: 4px; */
+}
+
+/** INPUT FIELD STYLE */
+#pfForm .createboxInput,
+#pfForm .mandatoryField,
+#pfForm textarea,
+#pfForm .pfTreeInput,
+#pfForm .select2-container {
+	max-width: 100%;
+	min-width: 0;
+	margin-left: 0;
+}
+.pf-formlayout__input .select2-container {
+	width: 100% !important;
+	min-width: 0 !important;
+}
+
+#pfForm .createboxInput,
+#pfForm .mandatoryField,
+#pfForm textarea {
+	width: min( 100%, var( --pf-field-max-width ) );
+	border-radius: var( --pf-form-border-radius );
+	border: 1px solid var( --pf-form-border-color );
+	padding: var( --pf-field-padding-y ) var( --pf-field-padding-x );
+	display: inline-block;
+	box-sizing: border-box;
+	background: @background-color-base;
+}
+
+#pfForm input[readonly] {
+    background: #EEE;
+}
+
+#pfForm .select2-container {
+	border: none;
+	padding: 0;
+	width: min( 100%, var( --pf-field-max-width ) ) !important;
+}
+#pfForm textarea,
+form input.formInput,
+#pfForm input.yearInput,
+#pfForm input.dayInput,
+#pfForm input.hoursInput,
+#pfForm input.minutesInput,
+#pfForm input.secondsInput {
+	border-radius: var( --pf-form-border-radius );
+	border: 1px solid var( --pf-form-border-color );
+	padding: var( --pf-field-padding-y ) var( --pf-field-padding-x );
+}
+
+/* The dropdowns need slightly different settings. */
+#pfForm select.monthInput,
+#pfForm select.ampmInput {
+	border-radius: var( --pf-form-border-radius );
+	border: 1px solid var( --pf-form-border-color );
+	padding: 3px 8px;
+}
+
+#pfForm select,
+#pfForm span.checkboxesSpan input[type="checkbox"] {
+	max-width: 100%;
+}
+
+#pfForm select {
+	width: min(100%, var(--pf-field-max-width));
+	min-height: 44px;
+}
+
+#pfForm label.checkboxLabel {
+	display: inline-block;
+}
+
+body.ltr #pfForm label.checkboxLabel {
+	margin-right: 20px;
+}
+
+body.rtl #pfForm label.checkboxLabel {
+	margin-left: 20px;
+}
+
+#pfForm label.radioButtonItem {
+	display: inline-block;
+}
+
+body.ltr #pfForm label.radioButtonItem {
+	margin-right: 20px;
+}
+
+body.rtl #pfForm label.radioButtonItem {
+	margin-left: 20px;
+}
+
+/* Select2 inputs */
+#pfForm .select2-container {
+	width: min(100%, var(--pf-field-max-width)) !important;
+}
+.select2-choices,
+.select2-choice {
+	border-radius: 4px 4px 0 0;
+	border: 1px solid #BBB;
+	min-width: 0;
+	max-width: 100%;
+}
+.select2-choice {
+    /*width: 412px !important;*/
+}
+
+.pf-formlayout textarea, .pf-formlayout--legacy-converted textarea {
+    /*width: 422px !important;*/
+}
+
+/** /INPUT FIELD STYLE */
+
+/* Override Select2 Style */
+.select2-drop-active {
+    border: 1px solid #999;
+}
+.select2-container-multi .select2-choices {
+    padding: 2px 0;
+}
+
+.select2-container-multi .select2-choices .select2-search-choice {
+    padding: 4px 5px 4px 18px;
+}
+
+.select2-container .select2-choice .select2-arrow {
+    border-radius: 0;
+}
+
+.formInput .select2-arrow {
+	visibility: hidden;
+}
+
+.select2-container .select2-choice > .select2-chosen {
+    color: #000;
+}
+
+div.infoMessage {
+	border: 1px solid @border-color-base;
+	padding: 12px;
+	margin: 25px;
+	width: auto;
+	background: @background-color-neutral;
+}
+
+div.errorMessage {
+	color: red;
+	margin: 4px 0 4px 10px;
+}
+.inputError {
+	background: #FCEEEE;
+}
+
+input.modifiedInput {
+	background: #FFDDE5;
+}
+
+div.mainForms {
+	font-size: large;
+}
+
+div.otherForms {
+	font-size: small;
+}
+
+.multipleTemplateInstance {
+	background-color: @background-color-neutral;
+	border: 1px solid @border-color-base;
+	padding: 5px;
+	margin: 15px 0 15px 0;
+	border-radius: 3px;
+	position: relative;
+	transition: opacity 220ms ease, transform 220ms ease, max-height 220ms ease, margin 220ms ease, padding 220ms ease;
+	transform-origin: top center;
+}
+
+.multipleTemplateInstance.pf-removing-instance {
+	opacity: 0;
+	transform: scaleY( 0.92 );
+	pointer-events: none;
+}
+
+.multipleTemplateInstance.sortable-chosen {
+	background-color: #b5b5b5;
+}
+
+.multipleTemplateInstance .multipleTemplateInstanceTable {
+	display: grid;
+	grid-template-columns: 8px minmax(0, 1fr);
+	gap: 0.75rem;
+	width: 100%;
+	padding: 0;
+	margin: 0;
+	color: inherit;
+	background-color: inherit;
+	align-items: start;
+}
+
+a.addAboveButton {
+	display: block;
+	background: center / contain no-repeat #000 url('PF_add_above.svg');
+	background-size: 14px;
+}
+
+a.removeButton {
+	display: block;
+	background: center / contain no-repeat #000 url('PF_remove.svg');
+	background-size: 9px;
+}
+
+.fieldBox .instanceRemove a.removeButton,
+.fieldBox .instanceAddAbove a.addAboveButton,
+.multipleTemplateWrapper .instanceRemove a.removeButton,
+.multipleTemplateWrapper .instanceAddAbove a.addAboveButton {
+	width: 21px;
+	height: 21px;
+	cursor: pointer;
+	border-radius: 100%;
+	opacity: 0.90;
+	transition: 0.1s;
+}
+
+.instanceAddAbove a.addAboveButton {
+	opacity: 1;
+}
+
+.instanceRearranger {
+	cursor: move;
+	background-image: url(rearrangeDots.png);
+	background-repeat: repeat;
+	width: 8px;
+	min-height: 100%;
+}
+
+.instanceMain {
+	min-width: 0;
+}
+
+.instanceAddAbove, .instanceRemove {
+	padding: 0;
+	width: 34px;
+	overflow: visible;
+	position: absolute;
+	transition: opacity 0.25s;
+}
+
+.instanceAddAbove {
+	right: 30px;
+	top: -11px;
+	opacity: 1;
+}
+
+.instanceRemove {
+	right: 4px;
+	top: -11px;
+}
+
+.fieldBox:hover .instanceRemove,
+.multipleTemplateInstance:hover .instanceRemove {
+	opacity: 1;
+}
+
+.fieldBox .instanceAddAbove a:hover,
+.fieldBox .instanceAddAbove a:active,
+.fieldBox .instanceAddAbove a:focus,
+.fieldBox .instanceRemove a:hover,
+.fieldBox .instanceRemove a:active,
+.fieldBox .instanceRemove a:focus,
+.multipleTemplateWrapper .instanceAddAbove a:hover,
+.multipleTemplateWrapper .instanceAddAbove a:active,
+.multipleTemplateWrapper .instanceAddAbove a:focus,
+.multipleTemplateWrapper .instanceRemove a:hover,
+.multipleTemplateWrapper .instanceRemove a:active,
+.multipleTemplateWrapper .instanceRemove a:focus {
+	opacity: 1;
+	box-shadow: none !important;
+	outline: none;
+}
+
+#pfForm textarea.pf-textarea--full-width {
+	width: min( 100%, var( --pf-field-max-width ) );
+}
+
+#pfForm textarea.pf-textarea--content-width {
+	width: auto;
+	max-width: 100%;
+}
+
+/* Override some jQuery UI settings */
+.ui-button { margin-left: -1px; }
+.ui-button-icon-only .ui-button-text { padding: 0.35em; }
+button.ui-button-icon-only {
+	width: 1.7em;
+	height: 1.5em;
+	vertical-align: bottom;
+	margin-top: 0.2em;
+} /* button elements seem to need a little more width */
+/* Override CSS from Header Tabs extension, if tabs are used in the form */
+input.pfComboBoxActual {
+	border: 1px solid #a6a6a6;
+}
+
+.pfTokensGhost {
+	color: #777;
+	background-color: #f7f7f7 !important;
+	border: 1px solid #ddd !important;
+}
+
+/* The standard MediaWiki editOptions class lacks a top border. */
+div.editOptions {
+	border: 1px solid @border-color-subtle;
+}
+
+.fieldValuesDisplay {
+	grid-column: 2;
+	color: @color-subtle;
+	font-size: 0.95em;
+	line-height: 1.5;
+	padding: 0.1rem 0;
+}
+
+.pfFieldDescription {
+	margin: 0.35rem 0 0;
+	font-size: 0.85em;
+	color: @color-subtle;
+}
+
+.pf-form-previewnote {
+	font-weight: 700;
+}
+
+.pf-form-preview-wrapper {
+	margin-top: 15px;
+}
+
+.pf-wikiPreview {
+	display: none;
+	padding-bottom: 25px;
+	margin-bottom: 25px;
+	border-bottom: 1px solid #AAA;
+}
+
+.pf-loading-image__background,
+.pf-loading-image__spinner {
+	position: fixed;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+}
+
+.pf-loading-image__spinner {
+	padding: 48px;
+}
+
+.pf-hidden {
+	display: none;
+}
+
+
+.pf-force-reload-loading {
+	position: absolute;
+	left: 45%;
+	top: 45%;
+}
+
+.pf-form-option {
+	display: inline-block;
+	padding: 12px 16px 12px 0;
+}
+
+#pfForm .pfTreeInput {
+	height: auto;
+	min-height: 12rem;
+	width: min(100%, var(--pf-field-max-width));
+	overflow: auto;
+	position: relative;
+	border: 1px solid @border-color-base;
+	border-radius: 4px;
+	padding: 0.5rem;
+	box-sizing: border-box;
+	background: @background-color-base;
+}
+
+#pfForm .pfTokens,
+#pfForm .pfComboBox,
+#pfForm .oo-ui-comboBoxInputWidget,
+#pfForm .oo-ui-comboBoxInputWidget .oo-ui-inputWidget-input {
+	width: min(100%, var(--pf-field-max-width)) !important;
+	max-width: -webkit-fill-available;
+	box-sizing: border-box;
+}
+
+#pfForm .oo-ui-comboBoxInputWidget {
+	display: inline-flex;
+}
+
+#pfForm .pf-formlayout__input > .oo-ui-widget,
+#pfForm .pf-formlayout__input > .select2-container,
+#pfForm .pf-formlayout__input > .pfTreeInputWrapper {
+	width: min(100%, var(--pf-field-max-width));
+}
+
+#pfForm .pf-formlayout__input .pfTreeInputWrapper {
+	max-width: 100%;
+}
+
+/* Style for touch-screen devices */
+
+@media (hover: none), (pointer: none), (pointer: coarse) {
+	.instanceAddAbove,
+	.instanceRemove {
+		opacity:1;
+		position: absolute;
+	}
+
+	.instanceAddAbove {
+		width: 42px;
+	}
+
+	.fieldBox .instanceRemove a.removeButton,
+	.fieldBox .instanceAddAbove a.addAboveButton,
+	.multipleTemplateWrapper .instanceRemove a.removeButton,
+	.multipleTemplateWrapper .instanceAddAbove a.addAboveButton {
+		background-size: 21px;
+		width: 30px;
+		height: 30px;
+	}
+
+	.fieldBox .instanceRemove a.removeButton,
+	.multipleTemplateWrapper .instanceRemove a.removeButton {
+		background-size: 14px;
+	}
+}
+
+
+.pf-form-clear,
+.pf-wizard-clear {
+	clear: both;
+}
+
+.multipleTemplateInstance.pf-added-instance {
+	animation: pf-instance-enter 120ms ease-out;
+}
+
+@keyframes pf-instance-enter {
+	from {
+		opacity: 0;
+		transform: translateY( 4px );
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY( 0 );
+	}
+}
+
+.multipleTemplateInstance {
+	background-color: var(--background-color-interactive);
+	border: 1px solid @border-color-subtle;
+	padding: 0.5rem;
+	margin: 1rem 0;
+	border-radius: 10px;
+	box-shadow: 0 1px 2px rgba( 0, 0, 0, 0.04 );
+	position: relative;
+}
+
+.multipleTemplateInstance .pf-formlayout {
+	width: 100%;
+	padding: 0;
+	margin: 0;
+	color: inherit;
+	background-color: inherit;
+}
+
+@media (max-width: 720px) {
+	.pf-formlayout {
+		width: 100%;
+	}
+
+	.pf-formlayout__row {
+		grid-template-columns: minmax( 0, 1fr );
+		gap: 0.45rem;
+	}
+
+	.pf-formlayout__label {
+		padding-top: 0;
+	}
+
+	#pfForm input[type="text"],
+	#pfForm input[type="email"],
+	#pfForm input[type="url"],
+	#pfForm input[type="number"],
+	#pfForm input:not([type]),
+	#pfForm select,
+	#pfForm textarea,
+	#pfForm .oo-ui-inputWidget-input,
+	#pfForm .pfComboBoxWidget,
+	#pfForm .select2-container {
+		width: 100% !important;
+	}
+
+	.multipleTemplateInstance {
+		padding: 0.75rem;
+	}
+
+	.fieldValuesDisplay {
+		grid-column: auto;
+	}
+}
+
+
+.pf-loading-mask--active {
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+}
+
+.pf-placeholder-text {
+	color: #72777d;
+}
+
+.pf-delimiter-field {
+	width: 35px;
+}
+
+.pf-rating-display {
+	display: block;
+	width: 65px;
+	height: 13px;
+	background-image: var(--pf-rating-image);
+	background-position: 0 0;
+}
+
+.pf-rating-display__fill {
+	display: block;
+	width: var(--pf-rating-width, 0%);
+	height: 13px;
+	background-image: var(--pf-rating-image);
+	background-position: 0 -13px;
+}
+
+.pf-has-size,
+.pf-has-size .oo-ui-inputWidget-input {
+	max-width: min(100%, calc(var(--pf-field-size, 42) * 1ch + 3rem));
+}
+
+
+.pf-hidden-by-select {
+	display: none !important;
+}
+
+.pf-template-infobox {
+	width: 30em;
+	max-width: 100%;
+	font-size: 90%;
+	border: 1px solid #aaa;
+	background-color: #f9f9f9;
+	color: #000;
+	margin: 0 0 0.5em 1em;
+	padding: 0.2em;
+	float: right;
+	clear: right;
+	text-align: left;
+
+	.pf-template-infobox__title {
+		text-align: center;
+		background-color: #ccf;
+	}
+
+	.pf-template-infobox__title-text {
+		font-size: larger;
+	}
+}
+
+textarea.autoGrow {
+	resize: none;
+	overflow-y: hidden;
+	min-height: 2.4em;
+	box-sizing: border-box;
+	height: auto;
+}
+
+.select2-container--default .select2-selection--multiple {
+	min-height: 2.4em;
+	box-sizing: border-box;
+}
+
+.inputSpan {
+	width: 100%;
+}
+
+.select2-match-entire {
+	font-weight: normal;
+}
+
+#pfForm textarea {
+	font-size: 1em;
+	line-height: 1.35;
+	box-sizing: border-box;
+	width: 100% !important;
+	font-family: inherit;
+}
+
+/* Pour les cases à cocher des formulaires */
+#pfForm input[type="checkbox"] {
+	margin-right: 0;
+	min-width: 1.42857143em;
+}
+#pfForm .oo-ui-inputWidget {
+	margin-right: 7px;
+}
+.editOptions #wpMinoredit, .editOptions #wpWatchthis {
+	margin-right: 9px;
+}
+.checkboxLabel {
+	font-size: 0.875em;
+	white-space: nowrap;
+	margin-right: 1em !important;
+	display: inline-flex !important;
+	align-items: center;
+}
+/* Pour les caractères des tokens */
+li.select2-search-choice {
+	font-size:0.875em;
+}
+/* Pour les champs de résumés et de citations des formulaires */
+.champ-texte-formulaire {
+	font-family: serif !important;
+	font-size: 100% !important;
+	line-height: 1.5;
+}
+.tippy-tooltip.light-border-theme {
+	max-width: 600px !important;
+}
+.tippy-content-container {
+	max-height: none !important;
+}
+.tippy-header {
+	display: none;
+}
+.select2-dropdown {
+	border-color: var(--border-color-base,#e7e7e7);
+	border-radius: 1px;
+}
+#pfForm .createboxInput, #pfForm .mandatoryField, #pfForm textarea {
+	border-color: var(--border-color-base,#e7e7e7);
+}
+.action-formedit .select2-dropdown {
+	background-color: var(--background-color-interactive);
+}
+#pfForm .oo-ui-textInputWidget.oo-ui-widget-enabled .oo-ui-inputWidget-input, #pfForm .pfTokens, .select2-results__option, .ve-area-wrapper .oo-ui-toolbar-bar {
+	background-color: var(--background-color-base, #fff);
+}
+#pfForm .pfTokens {
+	padding: 0;
+	min-height: 3em;
+}
+/* .select2-selection__rendered {
+	margin: 0 !important;
+} */
+.select2-container .select2-search--inline .select2-search__field,
+li.select2-search.select2-search--inline,
+.pf-select2-container {
+	margin: 0 !important;
+}
+li.select2-search.select2-search--inline {
+	padding: 4px;
+	margin-top: 5px !important;
+}
+#pfForm .inputSpan textarea {
+	min-height: 44px !important;
+	padding-top: .65em !important;
+	padding-bottom: .65em !important;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+#pfForm .inputSpan textarea.visualeditor {
+	white-space: normal;
+}
+#pfForm .editOptions .oo-ui-layout.oo-ui-labelElement.oo-ui-fieldLayout.oo-ui-fieldLayout-align-top .oo-ui-fieldLayout-header {
+	font-weight: bold;
+	font-size: 115%;
+}
+#pfForm .oo-ui-checkboxInputWidget {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.5em 0;
+}
+/* Exception pour les boutons "Modification mineure" et "Suivre cette page" */
+#pfForm label[title] > .oo-ui-checkboxInputWidget {
+	display: inline-block;
+	padding: 0;
+}
+
+/* Pour les messages d'erreurs en haut de formulaire */
+#form_error_header {
+	align-items: center;
+}
+/* Pour agrandir le champ "Résumé des modifications" */
+#wpSummary {
+	max-width: none !important;
+}
+
+#pfForm .loadingImage {
+	display: none;
+}
+
+.formtable-lite {
+	display: flex;
+	flex-direction: column;
+}
+.formtable-lite__row {
+	display: flex;
+}
+.formtable-lite__label {
+	flex: 0 0 28%;
+	min-width: 0;
+	font-weight: bold;
+}
+.formtable-lite__field {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+@media ( max-width: 768px ) {
+	:root {
+		--pf-form-gap: 0.6rem;
+		--pf-form-row-gap: 0.75rem;
+		--pf-form-label-width: 100%;
+		--pf-field-max-width: 100%;
+	}
+
+	.pf-formlayout__row {
+		grid-template-columns: 1fr;
+	}
+
+	.pf-formlayout__label,
+	.pf-formlayout__input {
+		width: 100%;
+	}
+
+	.select2-container .select2-search--inline .select2-search__field {
+		width: 100% !important;
+		min-width: 0 !important;
+		box-sizing: border-box;
+	}
+	.select2-selection__rendered {
+		display: flex;
+		align-items: center;
+		flex-wrap: nowrap;
+		overflow-x: auto;
+	}
+
+	.select2-selection__choice {
+		flex: 0 0 auto;
+		white-space: normal !important;
+		word-break: break-word !important;
+		max-width: 100%;
+	}
+
+	.formtable-lite {
+		gap: 1em;
+	}
+
+	.formtable-lite__row {
+		flex-direction: column;
+		gap: 0.5em;
+	}
+
+	/* Pour les tokens */
+	span.select2-selection--multiple {
+		position: relative;
+	}
+	span.select2-selection--multiple > ul.select2-selection__rendered {
+		display: flex !important;
+		flex-wrap: wrap !important;
+		align-items: flex-start;
+		overflow: visible !important;
+		white-space: normal !important;
+		margin-bottom: 6px !important;
+	}
+	span.select2-selection--multiple > ul.select2-selection__rendered > li.select2-selection__choice {
+		float: none !important;
+		display: inline-flex !important;
+		align-items: center !important;
+		max-width: 90%;
+		min-width: 0;
+		overflow: hidden;
+		white-space: nowrap;
+	}
+	span.select2-selection--multiple > ul.select2-selection__rendered > li.select2-selection__choice > .select2-selection__choice__remove {
+		flex: 0 0 auto;
+		line-height: 1;
+	}
+	span.select2-selection--multiple > ul.select2-selection__rendered > li.select2-selection__choice .select2-match-entire {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* Champ vide : placeholder pleine largeur */
+	span.select2-selection--multiple > ul.select2-selection__rendered > li.select2-search--inline:only-child {
+		position: static !important;
+		display: block !important;
+		width: 100% !important;
+		flex: 1 0 100% !important;
+	}
+	span.select2-selection--multiple > ul.select2-selection__rendered > li.select2-search--inline:only-child > .select2-search__field {
+		width: 95% !important;
+		min-width: 0 !important;
+		margin-top: 0 !important;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* Dès qu'il y a un token : petit champ absolu à droite, hors flux */
+	span.select2-selection--multiple > ul.select2-selection__rendered > li.select2-search--inline:not(:only-child) {
+		position: absolute !important;
+		top: 5px;
+		right: 8px;
+		display: inline-flex !important;
+		width: 2em !important;
+		margin: 0 !important;
+	}
+	span.select2-selection--multiple > ul.select2-selection__rendered > li.select2-search--inline:not(:only-child) > .select2-search__field {
+		width: 2em !important;
+		min-width: 2em !important;
+		margin-top: 0 !important;
+	}
+	span.select2-selection--multiple:focus-within > ul.select2-selection__rendered {
+		padding-right: 8px !important;
+	}
+	span.select2-selection--multiple:focus-within > ul.select2-selection__rendered > li.select2-search--inline:not(:only-child) {
+		position: static !important;
+		flex: 1 0 100% !important;
+		width: 100% !important;
+	}
+	span.select2-selection--multiple:focus-within > ul.select2-selection__rendered > li.select2-search--inline:not(:only-child) > .select2-search__field {
+		width: 100% !important;
+		min-width: 0 !important;
+	}
+
+}
+
+@media ( min-width: 768px ) {
+
+	.formtable-lite {
+		gap: 3px;
+	}
+
+	.formtable-lite__row {
+		align-items: center;
+	}
+
+}
+.pf-formlayout__input .pf-singleline-text::placeholder {
+	white-space: nowrap;
+}
+
+.select2-results__option.select2-results__message {
+	font-style: italic;
+}

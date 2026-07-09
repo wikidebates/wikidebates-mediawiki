@@ -1,0 +1,37 @@
+{
+	"name": "Interlanguage",
+	"version": "2.0.0",
+	"author": [
+		"Nikola Smolenski",
+		"Modernized for MW 1.43"
+	],
+	"url": "https://www.mediawiki.org/wiki/Extension:Interlanguage",
+	"type": "parserhook",
+	"manifest_version": 2,
+
+	"AutoloadClasses": {
+		"InterlanguageCentralExtension": "InterlanguageCentralExtension.php",
+		"InterlanguageCentralExtensionPurgeJob": "InterlanguageCentralExtensionPurgeJob.php"
+	},
+
+	"Hooks": {
+		"ParserFirstCallInit": "InterlanguageCentralExtension::onParserFirstCallInit",
+		"LinksUpdate": "InterlanguageCentralExtension::onLinksUpdate",
+		"LanguageLinks": "InterlanguageCentralExtension::onLanguageLinks"
+	},
+
+	"MessagesDirs": {
+		"InterlanguageCentral": [
+			"i18n/central"
+		]
+	},
+
+	"ExtensionMessagesFiles": {
+		"InterlanguageMagic": "Interlanguage.i18n.magic.php",
+		"InterlanguageCentralMagic": "InterlanguageCentral.i18n.magic.php"
+	},
+
+	"JobClasses": {
+		"purgeDependentWikis": "InterlanguageCentralExtensionPurgeJob"
+	}
+}
