@@ -1,0 +1,48 @@
+/*	Minerva : remettre la toolbar VE en ligne (row) et éviter l'empilement	*/
+.skin-minerva .ve-ui-toolbar { 
+	overflow-x:	auto;
+	white-space:	nowrap;
+}
+
+/*	conteneur d’outils en rangée */
+.skin-minerva .ve-ui-toolbar .oo-ui-toolbar-tools,
+.skin-minerva .ve-ui-toolbar .oo-ui-toolbar-bar {
+	display:	flex;
+	flex-wrap:	nowrap;
+	align-items:	center;
+	gap:		0.25rem;
+	white-space:	nowrap;
+}
+
+/*	groupes d’outils en rangée */
+.skin-minerva .oo-ui-toolGroup,
+.skin-minerva .oo-ui-toolGroup-tools {
+	display:	flex;
+	flex-wrap:	nowrap;
+	align-items:	center;
+	gap:		0.125rem;
+}
+
+/*	boutons : ne pas prendre 100% de la largeur */
+.skin-minerva .oo-ui-buttonElement > .oo-ui-buttonElement-button {
+	display:	inline-flex;
+	width:		auto;
+	min-width:	auto;
+}
+
+/*	éviter que certains styles forcent le bloc */
+.skin-minerva .oo-ui-widget.oo-ui-buttonTool,
+.skin-minerva .oo-ui-tool {
+	display:	inline-flex;
+}
+
+/*	menu déroulant compact (format, insérer, etc.) */
+.skin-minerva .oo-ui-dropdownWidget {
+	max-width:	100%;
+}
+
+/*	laisse défiler horizontalement si trop d’outils */
+.skin-minerva .ve-ui-toolbar .oo-ui-toolGroup {
+	white-space:	nowrap;
+}
+

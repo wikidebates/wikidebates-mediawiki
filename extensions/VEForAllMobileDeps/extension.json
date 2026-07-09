@@ -1,0 +1,27 @@
+{
+	"name": "VEForAllMobileDeps",
+	"version": "1.0.0",
+	"author": "Wikidébats",
+	"url": "https://dev.wikidebates.org",
+	"descriptionmsg": "Preload VisualEditor mobile bundles on Minerva to fix VEForAll on PageForms.",
+	"type": "mediawiki-extension",
+	"manifest_version": 2,
+	"requires": {
+		"MediaWiki": ">= 1.39.0"
+	},
+	"AutoloadNamespaces": {
+		"VEForAllMobileDeps\\": "src/"
+	},
+	"ResourceModules": {
+		"ext.veforall.mobileToolbarFix": {
+			"targets": [ "mobile" ],
+			"styles": [ "modules/mobileToolbarFix.css" ],
+			"localBasePath": "",
+			"remoteExtPath": "VEForAllMobileDeps"
+		}
+	},
+	"Hooks": {
+		"BeforePageDisplay": "VEForAllMobileDeps\\HookHandler::onBeforePageDisplay"
+	}
+}
+

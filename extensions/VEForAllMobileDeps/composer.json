@@ -1,0 +1,13 @@
+{
+	"name": "wikidebates/veforall-mobile-deps",
+	"description": "Preload VE mobile modules on Minerva to fix VEForAll on PageForms.",
+	"type": "mediawiki-extension",
+	"license": "MIT",
+	"require": {
+		"composer/installers": "^2.0"
+	},
+	"extra": {
+		"installer-name": "VEForAllMobileDeps"
+	}
+}
+
