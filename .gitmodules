@@ -10,10 +10,6 @@
 	path = extensions/Cite
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Cite
 	branch = REL1_43
-[submodule "extensions/CiteThisPage"]
-	path = extensions/CiteThisPage
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/CiteThisPage
-	branch = REL1_43
 [submodule "extensions/CodeEditor"]
 	path = extensions/CodeEditor
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/CodeEditor
@@ -22,21 +18,9 @@
 	path = extensions/ConfirmEdit
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ConfirmEdit
 	branch = REL1_43
-[submodule "extensions/DiscussionTools"]
-	path = extensions/DiscussionTools
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/DiscussionTools
-	branch = REL1_43
 [submodule "extensions/Echo"]
 	path = extensions/Echo
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Echo
-	branch = REL1_43
-[submodule "extensions/Gadgets"]
-	path = extensions/Gadgets
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Gadgets
-	branch = REL1_43
-[submodule "extensions/ImageMap"]
-	path = extensions/ImageMap
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ImageMap
 	branch = REL1_43
 [submodule "extensions/InputBox"]
 	path = extensions/InputBox
@@ -46,18 +30,6 @@
 	path = extensions/Interwiki
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Interwiki
 	branch = REL1_43
-[submodule "extensions/Linter"]
-	path = extensions/Linter
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Linter
-	branch = REL1_43
-[submodule "extensions/LoginNotify"]
-	path = extensions/LoginNotify
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/LoginNotify
-	branch = REL1_43
-[submodule "extensions/Math"]
-	path = extensions/Math
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Math
-	branch = REL1_43
 [submodule "extensions/MultimediaViewer"]
 	path = extensions/MultimediaViewer
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/MultimediaViewer
@@ -66,25 +38,9 @@
 	path = extensions/Nuke
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Nuke
 	branch = REL1_43
-[submodule "extensions/OATHAuth"]
-	path = extensions/OATHAuth
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/OATHAuth
-	branch = REL1_43
-[submodule "extensions/PageImages"]
-	path = extensions/PageImages
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/PageImages
-	branch = REL1_43
 [submodule "extensions/ParserFunctions"]
 	path = extensions/ParserFunctions
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ParserFunctions
-	branch = REL1_43
-[submodule "extensions/PdfHandler"]
-	path = extensions/PdfHandler
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/PdfHandler
-	branch = REL1_43
-[submodule "extensions/Poem"]
-	path = extensions/Poem
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Poem
 	branch = REL1_43
 [submodule "extensions/ReplaceText"]
 	path = extensions/ReplaceText
@@ -93,10 +49,6 @@
 [submodule "extensions/Scribunto"]
 	path = extensions/Scribunto
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Scribunto
-	branch = REL1_43
-[submodule "extensions/SecureLinkFixer"]
-	path = extensions/SecureLinkFixer
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/SecureLinkFixer
 	branch = REL1_43
 [submodule "extensions/SpamBlacklist"]
 	path = extensions/SpamBlacklist
@@ -134,14 +86,6 @@
 	path = skins/MinervaNeue
 	url = https://gerrit.wikimedia.org/r/mediawiki/skins/MinervaNeue
 	branch = REL1_43
-[submodule "skins/MonoBook"]
-	path = skins/MonoBook
-	url = https://gerrit.wikimedia.org/r/mediawiki/skins/MonoBook
-	branch = REL1_43
-[submodule "skins/Timeless"]
-	path = skins/Timeless
-	url = https://gerrit.wikimedia.org/r/mediawiki/skins/Timeless
-	branch = REL1_43
 [submodule "skins/Vector"]
 	path = skins/Vector
 	url = https://gerrit.wikimedia.org/r/mediawiki/skins/Vector
@@ -150,3 +94,18 @@
 	path = vendor
 	url = https://gerrit.wikimedia.org/r/mediawiki/vendor
 	branch = REL1_43
+[submodule "extensions/Comments"]
+	path = extensions/Comments
+	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Comments
+[submodule "extensions/ContactPage"]
+	path = extensions/ContactPage
+	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ContactPage
+[submodule "extensions/HitCounters"]
+	path = extensions/HitCounters
+	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/HitCounters
+[submodule "extensions/InterwikiExtracts"]
+	path = extensions/InterwikiExtracts
+	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/InterwikiExtracts
+[submodule "extensions/VEForAll"]
+	path = extensions/VEForAll
+	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/VEForAll
