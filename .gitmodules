@@ -92,7 +92,7 @@
 	branch = REL1_43
 [submodule "vendor"]
 	path = vendor
-	url = https://gerrit.wikimedia.org/r/mediawiki/vendor
+	url = git@github.com:wikidebates/wikidebates-mediawiki-vendor.git
 	branch = REL1_43
 [submodule "extensions/Comments"]
 	path = extensions/Comments
