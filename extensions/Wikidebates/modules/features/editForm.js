@@ -40,7 +40,13 @@
 	Utils
    ========================= */
 function getSummaryField() {
-	return $( '#wpSummary' );
+	/*	Avec OOUI, #wpSummary peut être le conteneur du widget.
+		Il faut retourner le véritable contrôle de formulaire. */
+	return $(
+		'#pfForm textarea[name="wpSummary"], ' +
+		'#pfForm input[name="wpSummary"], ' +
+		'textarea#wpSummary, input#wpSummary'
+	).first();
 }
 
 function fireNativeInputEvent( el ) {
@@ -51,19 +57,48 @@ function fireNativeInputEvent( el ) {
 
 function ensureSummaryTextarea() {
 	try {
+		/*	PageForms rend maintenant directement un widget OOUI multiligne.
+			Dans ce cas, #wpSummary désigne généralement le conteneur du widget,
+			et le textarea réel est identifié par name="wpSummary". */
+		var textarea = D.querySelector(
+			'#pfForm textarea[name="wpSummary"], ' +
+			'textarea#wpSummary[name="wpSummary"]'
+		);
+
+		if ( textarea ) {
+			textarea.rows = 1;
+			textarea.classList.add( 'autoGrow', 'pf-singleline-text', 'pf-summary-textarea' );
+
+			/*	Initialise l’autogrow sur le vrai textarea si le module est disponible. */
+			mw.loader.using( 'ext.pageforms.autogrow' ).then( function () {
+				if (
+					typeof $.fn.autoGrow === 'function' &&
+					!textarea.classList.contains( 'pf-autogrow-initialized' )
+				) {
+					textarea.classList.add( 'pf-autogrow-initialized' );
+					$( textarea ).autoGrow();
+				}
+				fireNativeInputEvent( textarea );
+			} );
+			return;
+		}
+
+		/*	Compatibilité avec une ancienne version de PageForms qui rend encore
+			le résumé sous forme d’input. */
 		var input = D.querySelector( '#wpSummary input.oo-ui-inputWidget-input' )
-			|| D.querySelector( 'input[name=wpSummary].oo-ui-inputWidget-input' )
-			|| D.querySelector( 'input[name=wpSummary]' );
+			|| D.querySelector( 'input[name="wpSummary"].oo-ui-inputWidget-input' )
+			|| D.querySelector( 'input[name="wpSummary"]' );
 
 		if ( !input || input.tagName.toLowerCase() !== 'input' ) return;
 		if ( input.dataset && input.dataset.wkSummaryTextarea === '1' ) return;
 
-		var textarea = D.createElement( 'textarea' );
+		textarea = D.createElement( 'textarea' );
 		textarea.name = input.name;
 		textarea.id = input.id;
 		textarea.title = input.title;
 		textarea.accessKey = input.accessKey;
-		textarea.className = ( input.className ? input.className : '' ) + ' autoGrow pf-singleline-text';
+		textarea.className = ( input.className ? input.className : '' ) +
+			' autoGrow pf-singleline-text pf-summary-textarea';
 		textarea.tabIndex = input.tabIndex;
 		textarea.placeholder = input.placeholder || '';
 		textarea.value = input.value;
@@ -76,7 +111,14 @@ function ensureSummaryTextarea() {
 		textarea.dataset.wkSummaryTextarea = '1';
 
 		if ( input.parentNode ) input.parentNode.replaceChild( textarea, input );
-		$( textarea ).trigger( 'input' );
+
+		mw.loader.using( 'ext.pageforms.autogrow' ).then( function () {
+			if ( typeof $.fn.autoGrow === 'function' ) {
+				textarea.classList.add( 'pf-autogrow-initialized' );
+				$( textarea ).autoGrow();
+			}
+			fireNativeInputEvent( textarea );
+		} );
 	} catch ( e ) {}
 }
 
