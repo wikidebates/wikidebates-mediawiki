@@ -72,17 +72,21 @@ class PFFormUtils {
 			'id' => 'wpSummary',
 			'maxlength' => CommentStore::COMMENT_CHARACTER_LIMIT,
 			'title' => wfMessage( 'tooltip-summary' )->text(),
-			'accessKey' => wfMessage( 'accesskey-summary' )->text()
+			'accessKey' => wfMessage( 'accesskey-summary' )->text(),
+			'rows' => 1
 		];
 		if ( $is_disabled ) {
 			$attr['disabled'] = true;
 		}
+		$classes = [ 'autoGrow', 'pf-singleline-text', 'pf-summary-textarea' ];
 		if ( array_key_exists( 'class', $attr ) ) {
-			$attr['classes'] = [ $attr['class'] ];
+			$classes[] = $attr['class'];
+			unset( $attr['class'] );
 		}
+		$attr['classes'] = $classes;
 
 		$text = new OOUI\FieldLayout(
-			new OOUI\TextInputWidget( $attr ),
+			new OOUI\MultilineTextInputWidget( $attr ),
 			[
 				'align' => 'top',
 				'label' => new OOUI\HtmlSnippet( $label )

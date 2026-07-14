@@ -199,43 +199,6 @@ function initAutoGrowIn( $root ) {
 	} );
 }
 
-function initEditSummaryField() {
-	const $summary = $( '#wpSummary' );
-
-	if ( !$summary.length || $summary.is( 'textarea' ) || $summary.data( 'pfSummaryInitialized' ) ) {
-		return;
-	}
-
-	const summaryValue = $summary.val();
-	const summaryClass = ( $summary.attr( 'class' ) || '' ) + ' autoGrow pf-singleline-text pf-summary-textarea';
-
-	const $textarea = $( '<textarea>' )
-		.attr( {
-			id: $summary.attr( 'id' ),
-			name: $summary.attr( 'name' ),
-			tabindex: $summary.attr( 'tabindex' ),
-			accesskey: $summary.attr( 'accesskey' ),
-			placeholder: $summary.attr( 'placeholder' ),
-			maxlength: $summary.attr( 'maxlength' ),
-			rows: 1
-		} )
-		.addClass( summaryClass )
-		.val( summaryValue )
-		.data( 'pfSummaryInitialized', true );
-
-	if ( $summary.prop( 'disabled' ) ) {
-		$textarea.prop( 'disabled', true );
-	}
-
-	if ( $summary.prop( 'readonly' ) ) {
-		$textarea.prop( 'readonly', true );
-	}
-
-	$summary.replaceWith( $textarea );
-
-	initAutoGrowIn( $textarea );
-}
-
 function initRatingsIn( $root ) {
 	const $elements = $root.find( '.pfRating' ).addBack( '.pfRating' ).not( '.pf-rating-initialized' );
 	if ( $elements.length === 0 ) {
@@ -2148,7 +2111,6 @@ $( () => {
 			}
 
 			$pfForm.initializeJSElements( false );
-			initEditSummaryField();
 
 			$( '.multipleTemplateInstance' ).each( function() {
 				$( this ).initializeJSElements( true );

@@ -117,17 +117,17 @@
 
 		if ( $summaryfield.length > 0 ) {
 
-			const oldsummary = $summaryfield.attr( 'value' );
+			const oldsummary = $summaryfield.val() || '';
 
 			if ( oldsummary !== '' ) {
-				$summaryfield.attr( 'value', oldsummary + ' (' + saveAndContinueSummary + ')' );
+				$summaryfield.val( oldsummary + ' (' + saveAndContinueSummary + ')' );
 			} else {
-				$summaryfield.attr( 'value', saveAndContinueSummary );
+				$summaryfield.val( saveAndContinueSummary );
 			}
 
 			params = $form.serialize();
 
-			$summaryfield.attr( 'value', oldsummary );
+			$summaryfield.val( oldsummary );
 		} else {
 			params = $form.serialize();
 			params += '&wpSummary=' + saveAndContinueSummary;
