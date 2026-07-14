@@ -317,7 +317,7 @@ class PFMappingUtils {
 		$allDisplayTitles = self::getDisplayTitles( $allTitles );
 		foreach ( $pageNamesForValues as $value => $pageName ) {
 			if ( isset( $allDisplayTitles[ $pageName ] )
-				&& strtolower( $allDisplayTitles[ $pageName ] ) !== strtolower( $value )
+				&& mb_strtolower( $allDisplayTitles[ $pageName ], 'UTF-8' ) !== mb_strtolower( $value, 'UTF-8' )
 			) {
 				$displayValue = sprintf( '%s (%s)', $allDisplayTitles[ $pageName ], $value );
 			} else {
