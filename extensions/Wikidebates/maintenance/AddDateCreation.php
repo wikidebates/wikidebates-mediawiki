@@ -17,7 +17,7 @@ class AddDateCreation extends Maintenance {
 
 	private const EDIT_SUMMARIES = [
 		'fr' => 'Ajout de la date de création',
-		'en' => 'Addition of the creation date',
+		'en' => 'Creation date added',
 	];
 
 	private const DATE_PARAMS = [
