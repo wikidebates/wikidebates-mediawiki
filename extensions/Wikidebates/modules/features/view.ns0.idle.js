@@ -28,7 +28,6 @@
 			var query =
 				'{{#recentdebatechanges: page=' + page +
 				'|limit=100' +
-				'|skipuser=Wikirobot' +
 				'}}';
 
 			if ( typeof WK.wkParseWikitext !== 'function' || typeof WK.wkReplaceHtml !== 'function' ) return;
