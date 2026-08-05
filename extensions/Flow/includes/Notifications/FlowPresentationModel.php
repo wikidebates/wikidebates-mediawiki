@@ -26,7 +26,28 @@ abstract class FlowPresentationModel extends EchoEventPresentationModel {
 	}
 
 	public function getSecondaryLinks() {
-		return [ $this->getAgentLink() ];
+		return [ $this->getAgentPageLink() ];
+	}
+
+	/**
+	 * Return the agent link with a descriptive label for email notifications.
+	 *
+	 * @return array|null
+	 */
+	protected function getAgentPageLink() {
+		$link = $this->getAgentLink();
+		$agent = $this->event->getAgent();
+
+		if ( !$link || !$agent || !$agent->isRegistered() ) {
+			return $link;
+		}
+
+		$msg = $this->msg( 'flow-notification-link-text-view-user-page' );
+		$msg->params( $agent->getName() );
+		$msg->plaintextParams( $agent->getName() );
+		$link['label'] = $msg->text();
+
+		return $link;
 	}
 
 	/**
@@ -119,9 +140,14 @@ abstract class FlowPresentationModel extends EchoEventPresentationModel {
 
 	protected function getBoardLink( $sortBy = null ) {
 		$query = $sortBy ? [ 'topiclist_sortby' => $sortBy ] : [];
-		return $this->getPageLink(
+		$link = $this->getPageLink(
 			$this->event->getTitle(), '', true, $query
 		);
+		$msg = $this->msg( 'flow-notification-link-text-view-page' );
+		$msg->plaintextParams( $this->getPageTitle() );
+		$link['label'] = $msg->text();
+
+		return $link;
 	}
 
 	protected function getContentSnippet() {
@@ -130,18 +156,11 @@ abstract class FlowPresentationModel extends EchoEventPresentationModel {
 
 	protected function getTopicTitle( $extraParamName = 'topic-title' ) {
 		$topicTitle = $this->event->getExtraParam( $extraParamName, '' );
-		return $this->truncateTopicTitle( $topicTitle );
+		return $this->language->embedBidi( $topicTitle );
 	}
 
-	protected function truncateTopicTitle( $topicTitle ) {
-		return $this->language->embedBidi(
-			$this->language->truncateForVisual(
-				$topicTitle,
-				self::SECTION_TITLE_RECOMMENDED_LENGTH,
-				'...',
-				false
-			)
-		);
+	protected function getPageTitle() {
+		return $this->language->embedBidi( $this->event->getTitle()->getText() );
 	}
 
 	protected function isUserTalkPage() {
@@ -168,7 +187,7 @@ abstract class FlowPresentationModel extends EchoEventPresentationModel {
 		$query = [ 'action' => 'unwatch' ];
 		$link = $this->getWatchActionLink( $title );
 		$type = $isTopic ? 'topic' : 'board';
-		$stringPageTitle = $isTopic ? $this->getTopicTitle() : $this->getTruncatedTitleText( $title );
+		$stringPageTitle = $isTopic ? $this->getTopicTitle() : $this->getPageTitle();
 
 		if ( $this->isUserTalkPage() ||
 			 !MediaWikiServices::getInstance()->getWatchlistManager()->isWatched( $this->getUser(), $title )

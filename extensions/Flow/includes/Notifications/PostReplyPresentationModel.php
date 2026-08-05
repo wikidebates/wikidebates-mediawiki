@@ -76,9 +76,21 @@ class PostReplyPresentationModel extends FlowPresentationModel {
 			$msg->numParams( $count, $count );
 		} else {
 			$msg = parent::getHeaderMessage();
-			$msg->params( $this->getTruncatedTitleText( $this->event->getTitle(), true ) );
+			$msg->params( $this->getPageTitle() );
 		}
 		$msg->plaintextParams( $this->getTopicTitle() );
+		return $msg;
+	}
+
+	/** @inheritDoc */
+	public function getSubjectMessage() {
+		$msg = $this->getMessageWithAgent( 'notification-subject-' . $this->getType() );
+
+		if ( $msg->isDisabled() ) {
+			return parent::getSubjectMessage();
+		}
+
+		$msg->plaintextParams( $this->getTopicTitle(), $this->getPageTitle() );
 		return $msg;
 	}
 

@@ -32,7 +32,7 @@ class NewTopicPresentationModel extends FlowPresentationModel {
 			];
 		} else {
 			return [
-				$this->getAgentLink(),
+				$this->getAgentPageLink(),
 				$this->getBoardByNewestLink(),
 				$this->getFlowUnwatchDynamicActionLink()
 			];
@@ -78,13 +78,25 @@ class NewTopicPresentationModel extends FlowPresentationModel {
 			$count = $this->getNotificationCountForOutput();
 			// Repeat is B/C until unused parameter is removed from translations
 			$msg->numParams( $count, $count );
-			$msg->params( $this->getTruncatedTitleText( $this->event->getTitle(), true ) );
+			$msg->params( $this->getPageTitle() );
 		} else {
 			$msg->params( $this->getAgentForOutput() );
-			$msg->params( $this->getTruncatedTitleText( $this->event->getTitle(), true ) );
+			$msg->params( $this->getPageTitle() );
 			$msg->plaintextParams( $this->getTopicTitle() );
 		}
 
+		return $msg;
+	}
+
+	/** @inheritDoc */
+	public function getSubjectMessage() {
+		$msg = $this->getMessageWithAgent( 'notification-subject-' . $this->getType() );
+
+		if ( $msg->isDisabled() ) {
+			return parent::getSubjectMessage();
+		}
+
+		$msg->plaintextParams( $this->getTopicTitle(), $this->getPageTitle() );
 		return $msg;
 	}
 
