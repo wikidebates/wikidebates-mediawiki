@@ -1,4 +1,4 @@
-/*	Wikidébats — Minerva header buttons (NS0) */
+/*	Wikidébats — Minerva header buttons (NS0 et NS2) */
 ( function () {
 	'use strict';
 
@@ -8,6 +8,45 @@
 	var $D = $( D );
 
 	var WK = W.Wikidebates || ( W.Wikidebates = {} );
+
+	function wkReplaceUserEditLink_Minerva() {
+		function replaceLink() {
+			var caEdit = D.querySelector( '#ca-edit' );
+			var pageName = mw.config.get( 'wgPageName' );
+
+			if ( !caEdit || !pageName ) return false;
+
+			var lang = ( mw.config.get( 'wgContentLanguage' ) || mw.config.get( 'wgUserLanguage' ) || 'fr' )
+				.toLowerCase()
+				.split( '-' )[ 0 ];
+			var userLang = ( mw.config.get( 'wgUserLanguage' ) || lang )
+				.toLowerCase()
+				.split( '-' )[ 0 ];
+			var fallbackFormName = lang === 'en' ? 'User page' : "Page d'utilisateur";
+			var formName = fallbackFormName;
+
+			if ( userLang === lang && typeof WK.wkMsgD === 'function' ) {
+				formName = WK.wkMsgD( 'wk-form-user-page', fallbackFormName );
+			}
+
+			caEdit.href = mw.util.getUrl( 'Special:FormEdit/' + formName + '/' + pageName );
+			return true;
+		}
+
+		WK.wkWaitFor( function () {
+			return D.querySelector( '#ca-edit' );
+		}, function () {
+			replaceLink();
+		}, 4000 );
+
+		if ( typeof WK.wkLoadI18n === 'function' ) {
+			try {
+				$.when( WK.wkLoadI18n() ).always( function () {
+					replaceLink();
+				} );
+			} catch ( e ) {}
+		}
+	}
 
 	function wkMoveButtonsNS0_Minerva() {
 		function renameButton( $content ) {
@@ -119,7 +158,7 @@
 
 		try {
 			if ( typeof WK.wkIsNs === 'function' && typeof WK.wkIsView === 'function' ) {
-				if ( !WK.wkIsNs( 0 ) || !WK.wkIsView() ) return;
+				if ( ( !WK.wkIsNs( 0 ) && !WK.wkIsNs( 2 ) ) || !WK.wkIsView() ) return;
 			}
 		} catch ( e2 ) {}
 
@@ -127,7 +166,10 @@
 			if ( !WK.wkOnce( 'wk:minerva:headerButtons' ) ) return;
 		}
 
-		try { wkMoveButtonsNS0_Minerva(); } catch ( e3 ) {}
+		try {
+			if ( WK.wkIsNs( 0 ) ) wkMoveButtonsNS0_Minerva();
+			else if ( WK.wkIsNs( 2 ) ) wkReplaceUserEditLink_Minerva();
+		} catch ( e3 ) {}
 	}
 
 	try { init(); } catch ( e ) {}

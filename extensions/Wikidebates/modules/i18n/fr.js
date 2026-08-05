@@ -106,6 +106,7 @@ mw.messages.set( {
 	'wk-param-display-title': 'titre-affiché',
 
 	/*	Formulaires	*/
+	'wk-form-user-page': "Page d'utilisateur",
 	'wk-form-summary': 'Résumé',
 	'wk-form-citations': 'Citations',
 	'wk-form-references': 'Références',

@@ -329,9 +329,9 @@
 		/*	Préchargement VE mobile */
 		preloadVE_Minerva();
 
-		/*	Header buttons Minerva (si ns0 view) */
+		/*	Header buttons Minerva (si ns0 ou ns2 en lecture) */
 		try {
-			if ( WK.wkIsNs && WK.wkIsView && WK.wkIsNs( 0 ) && WK.wkIsView() ) {
+			if ( WK.wkIsNs && WK.wkIsView && ( WK.wkIsNs( 0 ) || WK.wkIsNs( 2 ) ) && WK.wkIsView() ) {
 				loadOnce( 'wk:minerva:load:headerButtons', 'ext.wikidebates.minerva.headerButtons' );
 			}
 		} catch ( e ) {}
