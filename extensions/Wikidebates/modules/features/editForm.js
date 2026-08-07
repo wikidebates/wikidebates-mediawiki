@@ -122,6 +122,43 @@ function ensureSummaryTextarea() {
 	} catch ( e ) {}
 }
 
+function wkBindSubmitOnEnter() {
+	$D.off( 'keydown.wkSubmitOnEnter', '#pfForm textarea' );
+
+	$D.on( 'keydown.wkSubmitOnEnter', '#pfForm textarea', function ( e ) {
+		if ( e.key !== 'Enter' && e.keyCode !== 13 ) return;
+		if ( e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing ) return;
+
+		/*	Les zones d’édition de code/VisualEditor doivent conserver Entrée. */
+		if ( $( this ).closest( '.ve-area-wrapper, .CodeMirror, .cm-editor' ).length ) return;
+
+		var form = this.form || D.getElementById( 'pfForm' );
+		if ( !form ) return;
+
+		e.preventDefault();
+
+		/*	Déclenche les traitements liés à la sortie du champ (résumé, etc.)
+			avant la soumission. Maj+Entrée reste disponible pour un retour à la ligne. */
+		this.blur();
+
+		var saveButton = form.querySelector(
+			'button[name="wpSave"]:not([disabled]), ' +
+			'input[type="submit"][name="wpSave"]:not([disabled]), ' +
+			'button#wpSave:not([disabled]), ' +
+			'input#wpSave[type="submit"]:not([disabled])'
+		);
+
+		if ( typeof form.requestSubmit === 'function' ) {
+			if ( saveButton ) form.requestSubmit( saveButton );
+			else form.requestSubmit();
+		} else if ( saveButton && typeof saveButton.click === 'function' ) {
+			saveButton.click();
+		} else {
+			form.submit();
+		}
+	} );
+}
+
 function wkGetSelect2SelectedText( e ) {
 	try {
 		if ( e && e.params && e.params.data && typeof e.params.data.text === 'string' ) {
@@ -252,6 +289,7 @@ function wkInitEditSummaries() {
 	}
 
 	ensureSummaryTextarea();
+	wkBindSubmitOnEnter();
 	wkBindCopyTitleFromPfTokens();
 
 	/*	Préfix section : comme Vector/Minerva */
