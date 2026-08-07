@@ -35,10 +35,19 @@ function autoGrowBindEvents( textArea ) {
 				const form = textArea.closest( 'form' );
 
 				if ( form ) {
-					const saveButton = form.querySelector( '#wpSave' );
+					const saveButton = form.querySelector(
+						'#wpSave button[type="submit"], ' +
+						'#wpSave input[type="submit"], ' +
+						'button#wpSave[type="submit"], ' +
+						'input#wpSave[type="submit"], ' +
+						'button[name="wpSave"][type="submit"], ' +
+						'input[name="wpSave"][type="submit"]'
+					);
 
 					if ( saveButton && typeof form.requestSubmit === 'function' ) {
 						form.requestSubmit( saveButton );
+					} else if ( saveButton ) {
+						saveButton.click();
 					} else if ( typeof form.requestSubmit === 'function' ) {
 						form.requestSubmit();
 					} else {
