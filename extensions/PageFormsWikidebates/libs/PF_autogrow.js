@@ -31,6 +31,20 @@ function autoGrowBindEvents( textArea ) {
 		textArea.addEventListener( 'keydown', function( e ) {
 			if ( e.key === 'Enter' ) {
 				e.preventDefault();
+
+				const form = textArea.closest( 'form' );
+
+				if ( form ) {
+					const saveButton = form.querySelector( '#wpSave' );
+
+					if ( saveButton && typeof form.requestSubmit === 'function' ) {
+						form.requestSubmit( saveButton );
+					} else if ( typeof form.requestSubmit === 'function' ) {
+						form.requestSubmit();
+					} else {
+						form.submit();
+					}
+				}
 			}
 		} );
 
