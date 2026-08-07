@@ -88,8 +88,8 @@
 	branch = REL1_43
 [submodule "skins/Vector"]
 	path = skins/Vector
-	url = https://gerrit.wikimedia.org/r/mediawiki/skins/Vector
-	branch = REL1_43
+	url = https://github.com/wikidebates/wikidebates-mediawiki-vector.git
+	branch = wikidebates-REL1_43-vector-2026-07-11
 [submodule "vendor"]
 	path = vendor
 	url = git@github.com:wikidebates/wikidebates-mediawiki-vendor.git
