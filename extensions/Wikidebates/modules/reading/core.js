@@ -196,6 +196,29 @@
 		return n;
 	}
 
+	function wkReadingMarkTopLevelVisited( argPage, chain ) {
+		if ( !argPage || wkReadingGetDepthFromChain( chain ) !== 1 ) return;
+
+		var args = D.querySelectorAll( '.argument.level-1[id]' );
+
+		for ( var i = 0; i < args.length; i++ ) {
+			var arg = args[ i ];
+			var titleEl = null;
+
+			try { titleEl = arg.querySelector( ':scope > .argument-title' ); } catch ( e ) {}
+			if ( !titleEl ) titleEl = arg.querySelector( '.argument-title' );
+			if ( !titleEl || wkReadingGetArgPageFromTitleEl( titleEl ) !== argPage ) continue;
+
+			titleEl.classList.add( 'visited' );
+
+			var id = arg.getAttribute( 'id' ) || '';
+			var mapEl = id ? D.getElementById( id + '_map' ) : null;
+			if ( mapEl ) mapEl.classList.add( 'visited' );
+
+			return;
+		}
+	}
+
 	function wkReadingStoreSiblingsAtDepth( depth, items ) {
 		if ( !depth || !items || !items.length ) return;
 
@@ -786,6 +809,8 @@
 		wkReadingBindSiblingsDelegation( ui );
 
 		if ( chainOpt && chainOpt.length ) WK_READING.state.chain = wkReadingHistoryCloneChain( chainOpt );
+
+		wkReadingMarkTopLevelVisited( argPage, WK_READING.state.chain );
 
 		if ( useHistory ) wkReadingHistoryPushState( argPage, WK_READING.state.chain );
 
