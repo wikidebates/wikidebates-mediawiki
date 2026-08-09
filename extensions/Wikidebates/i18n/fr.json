@@ -1,0 +1,18 @@
+{
+	"@metadata": {
+		"authors": [
+			"Wikidébats"
+		]
+	},
+	"wikidebates-desc": "Fonctionnalités pour Wikidébats.",
+	"wikidebates-recent-changes-none": "Aucune contribution récente n'a été enregistrée.",
+	"wikidebates-recent-changes-author-date": "par $1, le $2",
+	"wikidebates-recent-changes-history": "historique",
+	"wikidebates-recent-changes-related-argument": "argument concerné : $1",
+	"wikidebates-recent-changes-parent-property": "Débat parent",
+	"wikidebates-recent-changes-breadcrumb-property": "Fil d'Ariane",
+	"wikidebates-recent-changes-error-no-page": "Aucune page de débat n'a été indiquée.",
+	"wikidebates-recent-changes-error-invalid-title": "Le titre de la page de débat est invalide.",
+	"wikidebates-recent-changes-error-no-debate-id": "Aucun identifiant sémantique n'a été trouvé pour le débat.",
+	"wikidebates-recent-changes-error-no-semantic-property": "La propriété sémantique « $1 » est introuvable."
+}

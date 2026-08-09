@@ -1,0 +1,18 @@
+{
+	"@metadata": {
+		"authors": [
+			"Wikidébats"
+		]
+	},
+	"wikidebates-desc": "{{desc|name=Wikidebates|url=https://example.invalid/}}",
+	"wikidebates-recent-changes-none": "Message shown when no recent contribution is found for the debate.",
+	"wikidebates-recent-changes-author-date": "Author and date displayed after a recent contribution. $1 is a wikitext link to the contributor. $2 is a date localized by MediaWiki.",
+	"wikidebates-recent-changes-history": "Label of the link to the page history.",
+	"wikidebates-recent-changes-related-argument": "Label shown when a recent contribution is associated with an argument. $1 is a wikitext link to the argument.",
+	"wikidebates-recent-changes-parent-property": "Exact localized name of the Semantic MediaWiki property that links an argument to its parent debate. This value is used in a database lookup and must match the property name on the wiki.",
+	"wikidebates-recent-changes-breadcrumb-property": "Exact localized name of the Semantic MediaWiki breadcrumb property. This value is used in a database lookup and must match the property name on the wiki.",
+	"wikidebates-recent-changes-error-no-page": "Error shown when no debate page can be determined.",
+	"wikidebates-recent-changes-error-invalid-title": "Error shown when the supplied debate page title is invalid.",
+	"wikidebates-recent-changes-error-no-debate-id": "Error shown when the debate has no Semantic MediaWiki object identifier.",
+	"wikidebates-recent-changes-error-no-semantic-property": "Error shown when a required Semantic MediaWiki property cannot be found. $1 is the localized property name."
+}

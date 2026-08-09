@@ -1,0 +1,18 @@
+{
+	"@metadata": {
+		"authors": [
+			"Wikidébats"
+		]
+	},
+	"wikidebates-desc": "Features for Wikidébats.",
+	"wikidebates-recent-changes-none": "No recent contributions have been recorded.",
+	"wikidebates-recent-changes-author-date": "by $1, $2",
+	"wikidebates-recent-changes-history": "history",
+	"wikidebates-recent-changes-related-argument": "related argument: $1",
+	"wikidebates-recent-changes-parent-property": "Parent debate",
+	"wikidebates-recent-changes-breadcrumb-property": "Breadcrumb",
+	"wikidebates-recent-changes-error-no-page": "No debate page was provided.",
+	"wikidebates-recent-changes-error-invalid-title": "The debate page title is invalid.",
+	"wikidebates-recent-changes-error-no-debate-id": "No semantic identifier was found for the debate.",
+	"wikidebates-recent-changes-error-no-semantic-property": "The semantic property “$1” could not be found."
+}

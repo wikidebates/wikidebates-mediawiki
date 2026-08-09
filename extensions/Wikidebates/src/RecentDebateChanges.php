@@ -11,10 +11,6 @@ class RecentDebateChanges {
 
 	private const DEFAULT_LIMIT = 100;
 	private const MAX_LIMIT = 200;
-	private const PARENT_PROPERTY_FR = 'Débat parent';
-	private const PARENT_PROPERTY_EN = 'Parent debate';
-	private const BREADCRUMB_PROPERTY_FR = "Fil d'Ariane";
-	private const BREADCRUMB_PROPERTY_EN = 'Breadcrumb';
 	private const BREADCRUMB_SEPARATOR = '⟭';
 
 	public static function register( Parser $parser ): void {
@@ -38,7 +34,7 @@ class RecentDebateChanges {
 			}
 
 			if ( $page === '' ) {
-				return '<div class="error">No debate page given</div>';
+				return self::makeError( 'wikidebates-recent-changes-error-no-page' );
 			}
 
 			if ( $limit < 1 ) {
@@ -49,8 +45,14 @@ class RecentDebateChanges {
 
 			$items = self::fetchRecentChanges( $parser, $frame, $page, $limit );
 
+			if ( is_string( $items ) ) {
+				return $items;
+			}
+
 			if ( !$items ) {
-				return '<div class="aucun-contenu">Aucune contribution récente n\'a été enregistrée.</div>';
+				return '<div class="aucun-contenu">'
+					. htmlspecialchars( self::msg( 'wikidebates-recent-changes-none' ) )
+					. '</div>';
 			}
 
 			$out = [];
@@ -64,11 +66,22 @@ class RecentDebateChanges {
 					$line .= ' : ' . htmlspecialchars( $item['summary'] );
 				}
 
-				$line .= ' (par ' . self::makeWikiLink( $item['user_page'], $item['user_label'] ) . ', le ' . htmlspecialchars( $item['date_text'] ) . ')';
-				$line .= ' ([[Special:History/' . str_replace( ' ', '_', $item['title'] ) . '|historique]])';
+				$authorDate = self::msg(
+					'wikidebates-recent-changes-author-date',
+					self::makeWikiLink( $item['user_page'], $item['user_label'] ),
+					$item['date_text']
+				);
+				$line .= ' (' . $authorDate . ')';
+
+				$historyLabel = self::msg( 'wikidebates-recent-changes-history' );
+				$line .= ' ([[Special:History/' . str_replace( ' ', '_', $item['title'] ) . '|' . $historyLabel . ']])';
 
 				if ( $item['argument_concerne'] !== '' ) {
-					$line .= ' (argument concerné : ' . self::makeWikiLink( $item['argument_concerne'], $item['argument_concerne'] ) . ')';
+					$relatedArgument = self::msg(
+						'wikidebates-recent-changes-related-argument',
+						self::makeWikiLink( $item['argument_concerne'], $item['argument_concerne'] )
+					);
+					$line .= ' (' . $relatedArgument . ')';
 				}
 
 				$line .= '</li>';
@@ -118,11 +131,11 @@ class RecentDebateChanges {
 		return $out;
 	}
 
-	private static function fetchRecentChanges( Parser $parser, PPFrame $frame, string $debatePage, int $limit ): array {
+	private static function fetchRecentChanges( Parser $parser, PPFrame $frame, string $debatePage, int $limit ): array|string {
 		$title = Title::newFromText( $debatePage );
 
 		if ( !$title ) {
-			return '<div class="error">No title given</div>';
+			return self::makeError( 'wikidebates-recent-changes-error-invalid-title' );
 		}
 
 		$dbr = MediaWikiServices::getInstance()
@@ -136,21 +149,27 @@ class RecentDebateChanges {
 		);
 
 		if ( !$debateId ) {
-			return '<div class="error">No debate ID</div>';
+			return self::makeError( 'wikidebates-recent-changes-error-no-debate-id' );
 		}
+
+		$parentPropertyLabel = self::msg( 'wikidebates-recent-changes-parent-property' );
+		$breadcrumbPropertyLabel = self::msg( 'wikidebates-recent-changes-breadcrumb-property' );
 
 		$parentPropertyIds = self::findPropertyIds(
 			$dbr,
-			[ self::getParentPropertyLabel() ]
+			[ $parentPropertyLabel ]
 		);
 
 		$breadcrumbPropertyIds = self::findPropertyIds(
 			$dbr,
-			[ self::getBreadcrumbPropertyLabel() ]
+			[ $breadcrumbPropertyLabel ]
 		);
 
 		if ( !$parentPropertyIds ) {
-			return '<div class="error">No semantic property given</div>';
+			return self::makeError(
+				'wikidebates-recent-changes-error-no-semantic-property',
+				$parentPropertyLabel
+			);
 		}
 
 		$rows = [];
@@ -343,23 +362,6 @@ class RecentDebateChanges {
 		return $out;
 	}
 
-	private static function getWikiLangCode(): string {
-		$lang = MediaWikiServices::getInstance()->getContentLanguage();
-		return strtolower( $lang->getCode() );
-	}
-
-	private static function getParentPropertyLabel(): string {
-		return self::getWikiLangCode() === 'en'
-			? self::PARENT_PROPERTY_EN
-			: self::PARENT_PROPERTY_FR;
-	}
-
-	private static function getBreadcrumbPropertyLabel(): string {
-		return self::getWikiLangCode() === 'en'
-			? self::BREADCRUMB_PROPERTY_EN
-			: self::BREADCRUMB_PROPERTY_FR;
-	}
-
 	private static function findSmwObjectId( $dbr, string $dbKey, int $namespace ): ?int {
 		$row = $dbr->newSelectQueryBuilder()
 			->select( [ 'smw_id' ] )
@@ -450,12 +452,26 @@ class RecentDebateChanges {
 	}
 
 	private static function normalizeUserPage( string $userName ): string {
-		$userName = preg_replace( '/^(Utilisateur:|User:)/u', '', trim( $userName ) );
-		return 'Utilisateur:' . $userName;
+		$userLabel = self::normalizeUserLabel( $userName );
+		$userTitle = Title::makeTitleSafe( NS_USER, $userLabel );
+
+		return $userTitle ? $userTitle->getPrefixedText() : $userLabel;
 	}
 
 	private static function normalizeUserLabel( string $userName ): string {
 		return preg_replace( '/^(Utilisateur:|User:)/u', '', trim( $userName ) );
+	}
+
+	private static function msg( string $key, ...$params ): string {
+		return wfMessage( $key, ...$params )
+			->inLanguage( MediaWikiServices::getInstance()->getContentLanguage() )
+			->text();
+	}
+
+	private static function makeError( string $key, ...$params ): string {
+		return '<div class="error">'
+			. htmlspecialchars( self::msg( $key, ...$params ) )
+			. '</div>';
 	}
 
 	private static function makeWikiLink( string $target, string $label ): string {
