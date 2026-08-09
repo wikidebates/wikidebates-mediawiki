@@ -631,20 +631,110 @@
 		return false;
 	}
 
-	function wkReadingHistoryPushState() {
-		if ( !wkReadingHistoryIsOn() ) return;
+	function wkReadingHistoryIsRestorableState( st ) {
+		if ( !wkReadingHistoryIsReadingState( st ) ) return false;
+		if ( !st.page || !Array.isArray( st.chain ) || !st.chain.length ) return false;
+		return true;
+	}
+
+	function wkReadingHistoryCloneChain( chain ) {
+		var out = [];
+
+		for ( var i = 0; i < ( chain ? chain.length : 0 ); i++ ) {
+			var it = chain[ i ];
+			if ( !it ) continue;
+
+			out.push( {
+				page: it.page || '',
+				title: it.title || '',
+				type: it.type || ''
+			} );
+		}
+
+		return out;
+	}
+
+	function wkReadingHistoryGetSiblingsSnapshot( chain ) {
+		var depth = wkReadingGetDepthFromChain( chain );
+		var stored = WK_READING.state.siblingsByDepth
+			? WK_READING.state.siblingsByDepth[ depth ]
+			: null;
+		var out = [];
+
+		for ( var i = 0; i < ( stored ? stored.length : 0 ); i++ ) {
+			if ( stored[ i ] && stored[ i ].page ) {
+				out.push( {
+					page: stored[ i ].page,
+					title: stored[ i ].title || ''
+				} );
+			}
+		}
+
+		return out;
+	}
+
+	function wkReadingHistoryNewSessionId() {
+		return String( Date.now() ) + '-' + String( Math.random() ).slice( 2 );
+	}
+
+	function wkReadingHistoryBuildState( argPage, chain, step ) {
+		return {
+			wkReading: 1,
+			wkReadingVersion: 2,
+			wkReadingSession: WK_READING.state._wkHistorySession || '',
+			wkReadingStep: step,
+			page: argPage,
+			chain: wkReadingHistoryCloneChain( chain ),
+			h1Links: {
+				editHref: ( WK_READING.state.h1Links && WK_READING.state.h1Links.editHref ) || '#',
+				detailHref: ( WK_READING.state.h1Links && WK_READING.state.h1Links.detailHref ) || ''
+			},
+			siblings: wkReadingHistoryGetSiblingsSnapshot( chain )
+		};
+	}
+
+	function wkReadingHistoryPushState( argPage, chain ) {
+		if ( !wkReadingHistoryIsOn() || !argPage || !chain || !chain.length ) return;
 
 		try {
-			if ( WK_READING.state._wkHistoryPushed ) return;
+			if ( !WK_READING.state._wkHistorySession ) {
+				WK_READING.state._wkHistorySession = wkReadingHistoryNewSessionId();
+				WK_READING.state._wkHistoryStep = 0;
+			}
 
-			W.history.pushState(
-				{ wkReading: 1, t: Date.now() },
-				'',
-				W.location.href
-			);
+			var step = ( WK_READING.state._wkHistoryStep || 0 ) + 1;
+			var st = wkReadingHistoryBuildState( argPage, chain, step );
 
-			WK_READING.state._wkHistoryPushed = 1;
+			W.history.pushState( st, '', W.location.href );
+			WK_READING.state._wkHistoryStep = step;
 		} catch ( e ) {}
+	}
+
+	function wkReadingHistoryRestoreState( st ) {
+		if ( !wkReadingHistoryIsRestorableState( st ) ) return false;
+
+		var chain = wkReadingHistoryCloneChain( st.chain );
+		if ( !chain.length ) return false;
+
+		WK_READING.state._wkHistorySession = st.wkReadingSession || wkReadingHistoryNewSessionId();
+		WK_READING.state._wkHistoryStep = Number( st.wkReadingStep ) || 1;
+		WK_READING.state.chain = chain;
+		WK_READING.state.h1Links = {
+			editHref: ( st.h1Links && st.h1Links.editHref ) || '#',
+			detailHref: ( st.h1Links && st.h1Links.detailHref ) || mw.util.getUrl( st.page )
+		};
+
+		if ( st.siblings && st.siblings.length ) {
+			wkReadingStoreSiblingsAtDepth( wkReadingGetDepthFromChain( chain ), st.siblings );
+		}
+
+		wkOpenReadingModeFromPageTitle( st.page, chain, { history: false } );
+		return true;
+	}
+
+	function wkReadingHistoryResetSession() {
+		WK_READING.state._wkHistorySession = '';
+		WK_READING.state._wkHistoryStep = 0;
 	}
 
 	function wkReadingHistoryBindBack() {
@@ -652,58 +742,65 @@
 		if ( !WK.wkOnce( 'wk:reading:back' ) ) return;
 
 		W.addEventListener( 'popstate', function ( e ) {
-			/*	Si on vient de fermer volontairement et qu’on "pop" notre state, ignorer	*/
-			if ( WK_READING.state._wkClosingFromUi ) {
-				WK_READING.state._wkClosingFromUi = 0;
-				WK_READING.state._wkHistoryPushed = 0;
+			if ( WK_READING.state._wkHistorySkipNextPop ) {
+				WK_READING.state._wkHistorySkipNextPop = 0;
+				wkReadingHistoryResetSession();
 				return;
 			}
 
-			if ( !D.documentElement.classList.contains( 'wk-reading-active' ) ) return;
-
-			/*	1) si le sommaire est ouvert => le fermer	*/
+			/*	Un retour système ferme aussi le sommaire mobile avant de restaurer l’étape précédente.	*/
 			try {
-				if ( UI.ensureUi ) {
+				if ( UI.ensureUi && D.documentElement.classList.contains( 'wk-reading-active' ) ) {
 					var ui = UI.ensureUi();
-					if ( ui && ui.root && ui.root.classList.contains( 'is-sheet-open' ) ) {
-						if ( ui._wkLeftClose ) ui._wkLeftClose();
-						return;
+					if ( ui && ui.root && ui.root.classList.contains( 'is-sheet-open' ) && ui._wkLeftClose ) {
+						ui._wkLeftClose();
 					}
 				}
 			} catch ( e2 ) {}
 
-			/*	2) sinon fermer le mode lecture	*/
-			WK_READING.state._wkClosingFromPop = 1;
-			wkCloseReadingMode();
-			WK_READING.state._wkClosingFromPop = 0;
+			if ( wkReadingHistoryRestoreState( e.state ) ) return;
+
+			if ( D.documentElement.classList.contains( 'wk-reading-active' ) ) {
+				wkCloseReadingMode( { fromPop: true } );
+			}
 		}, true );
 	}
 
-	function wkOpenReadingModeFromPageTitle( argPage, chainOpt ) {
+	function wkOpenReadingModeFromPageTitle( argPage, chainOpt, options ) {
 		if ( !WK_READING.enabled ) return;
 		if ( !UI.ensureUi ) return;
 
 		var ui = UI.ensureUi();
 		if ( !ui ) return;
 
-		if ( ui.panel && !document.body.classList.contains( 'wk-reading-active' ) ) {
+		var wasActive = D.documentElement.classList.contains( 'wk-reading-active' );
+		var useHistory = !( options && options.history === false );
+
+		if ( ui.panel && !wasActive ) {
 			ui.panel.classList.add( 'is-loading' );
 		}
 
 		wkReadingSetActive( true );
-		wkReadingHistoryPushState();
 
 		wkReadingBindScrollTrap( ui );
 		wkReadingBindSiblingsDelegation( ui );
 
-		if ( chainOpt && chainOpt.length ) WK_READING.state.chain = chainOpt.slice();
+		if ( chainOpt && chainOpt.length ) WK_READING.state.chain = wkReadingHistoryCloneChain( chainOpt );
+
+		if ( useHistory ) wkReadingHistoryPushState( argPage, WK_READING.state.chain );
 
 		wkReadingRenderStack( ui, WK_READING.state.chain );
 
 		ui.content.scrollTop = 0;
 
+		var openSeq = ( WK_READING.state._wkOpenSeq || 0 ) + 1;
+		WK_READING.state._wkOpenSeq = openSeq;
+		WK_READING.state._wkCurrentPage = argPage;
+
 		wkReadingLoadFragment( argPage )
 			.then( function ( fragment ) {
+				if ( WK_READING.state._wkOpenSeq !== openSeq ) return;
+				if ( !D.documentElement.classList.contains( 'wk-reading-active' ) ) return;
 
 				if ( !fragment ) {
 					wkReadingInjectMissingPageNotice( ui, argPage );
@@ -714,16 +811,20 @@
 				wkReadingInjectFragment( ui, argPage, fragment );
 
 				requestAnimationFrame( function () {
+					if ( WK_READING.state._wkOpenSeq !== openSeq ) return;
 					if ( ui.panel ) ui.panel.classList.remove( 'is-loading' );
 				} );
 			} )
-.catch( function ( err ) {
-	if ( err === 'missingtitle' ) {
-		wkReadingInjectMissingPageNotice( ui, argPage );
-	}
+			.catch( function ( err ) {
+				if ( WK_READING.state._wkOpenSeq !== openSeq ) return;
+				if ( !D.documentElement.classList.contains( 'wk-reading-active' ) ) return;
 
-	if ( ui.panel ) ui.panel.classList.remove( 'is-loading' );
-} );
+				if ( err === 'missingtitle' ) {
+					wkReadingInjectMissingPageNotice( ui, argPage );
+				}
+
+				if ( ui.panel ) ui.panel.classList.remove( 'is-loading' );
+			} );
 	}
 
 	function wkOpenReadingModeFromTitleEl( titleEl ) {
@@ -766,40 +867,43 @@
 	wkReadingBindGlobalEsc();
 	wkReadingHistoryBindBack();
 
-	function wkCloseReadingMode() {
-		/*	Back natif : si on a pushState pour le mode lecture, revenir en arrière	*/
+	function wkCloseReadingMode( options ) {
+		var fromPop = !!( options && options.fromPop );
+		var shouldReturnToDebate = false;
+		var historyStep = Number( WK_READING.state._wkHistoryStep ) || 0;
+
+		/*	Une fermeture volontaire quitte toute la session de lecture d’un coup.	*/
 		try {
-			if ( !WK_READING.state._wkClosingFromPop && WK_READING.state._wkHistoryPushed && wkReadingHistoryIsOn() ) {
+			if ( !fromPop && historyStep > 0 && wkReadingHistoryIsOn() ) {
 				var st = W.history.state;
-				if ( wkReadingHistoryIsReadingState( st ) ) {
-					WK_READING.state._wkClosingFromUi = 1;
-					WK_READING.state._wkHistoryPushed = 0;
-					W.history.back();
+				if (
+					wkReadingHistoryIsReadingState( st ) &&
+					( !WK_READING.state._wkHistorySession || st.wkReadingSession === WK_READING.state._wkHistorySession )
+				) {
+					shouldReturnToDebate = true;
+					WK_READING.state._wkHistorySkipNextPop = 1;
+					W.history.go( -historyStep );
 				}
 			}
 		} catch ( e ) {}
 
+		WK_READING.state._wkOpenSeq = ( WK_READING.state._wkOpenSeq || 0 ) + 1;
+		WK_READING.state._wkCurrentPage = '';
 		wkReadingSetActive( false );
 
 		try {
 			if ( UI.closeUi ) {
-				try {
-					WK_READING.state._wkHistoryPushed = 0;
-					WK_READING.state._wkClosingFromUi = 0;
-				} catch ( e0 ) {}
 				UI.closeUi();
-				return;
+			} else {
+				var root = D.getElementById( 'wk-reading-mode' );
+				if ( root && root.parentNode ) root.parentNode.removeChild( root );
 			}
-		} catch ( e ) {}
+		} catch ( e2 ) {}
 
-		var root = D.getElementById( 'wk-reading-mode' );
-		if ( root && root.parentNode ) root.parentNode.removeChild( root );
-
-		/*	Toujours réarmer l'historique pour une prochaine ouverture	*/
-		try {
-			WK_READING.state._wkHistoryPushed = 0;
-			WK_READING.state._wkClosingFromUi = 0;
-		} catch ( e0 ) {}
+		if ( !shouldReturnToDebate ) {
+			WK_READING.state._wkHistorySkipNextPop = 0;
+			wkReadingHistoryResetSession();
+		}
 	}
 
 	function wkReadingBuildParseRequestParams( argPage ) {
