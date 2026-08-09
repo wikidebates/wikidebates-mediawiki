@@ -196,26 +196,28 @@
 		return n;
 	}
 
-	function wkReadingMarkTopLevelVisited( argPage, chain ) {
-		if ( !argPage || wkReadingGetDepthFromChain( chain ) !== 1 ) return;
+	function wkReadingMarkLevel1Visited( argPage ) {
+		if ( !argPage ) return;
 
-		var args = D.querySelectorAll( '.argument.level-1[id]' );
+		/*	Seuls les arguments portant explicitement .level-1 sont concernés.	*/
+		var args = D.querySelectorAll( '.argument.level-1' );
 
 		for ( var i = 0; i < args.length; i++ ) {
 			var arg = args[ i ];
-			var titleEl = null;
+			if ( arg.closest && arg.closest( '#wk-reading-mode' ) ) continue;
 
+			var titleEl = null;
 			try { titleEl = arg.querySelector( ':scope > .argument-title' ); } catch ( e ) {}
 			if ( !titleEl ) titleEl = arg.querySelector( '.argument-title' );
 			if ( !titleEl || wkReadingGetArgPageFromTitleEl( titleEl ) !== argPage ) continue;
 
+			/*	Liste des arguments : toujours marquée si l'argument est .level-1.	*/
 			titleEl.classList.add( 'visited' );
 
+			/*	Carte : synchronisation indépendante, uniquement si l'élément existe.	*/
 			var id = arg.getAttribute( 'id' ) || '';
 			var mapEl = id ? D.getElementById( id + '_map' ) : null;
 			if ( mapEl ) mapEl.classList.add( 'visited' );
-
-			return;
 		}
 	}
 
@@ -810,7 +812,7 @@
 
 		if ( chainOpt && chainOpt.length ) WK_READING.state.chain = wkReadingHistoryCloneChain( chainOpt );
 
-		wkReadingMarkTopLevelVisited( argPage, WK_READING.state.chain );
+		wkReadingMarkLevel1Visited( argPage );
 
 		if ( useHistory ) wkReadingHistoryPushState( argPage, WK_READING.state.chain );
 
@@ -857,7 +859,11 @@
 
 		wkReadingSetH1LinksFromTitleEl( titleEl );
 
-		if ( $ ) $( titleEl ).addClass( 'visited' );
+		var ownArg = titleEl.closest ? titleEl.closest( '.argument' ) : null;
+		if ( ownArg && ownArg.classList.contains( 'level-1' ) ) {
+			if ( $ ) $( titleEl ).addClass( 'visited' );
+			else titleEl.classList.add( 'visited' );
+		}
 
 		var link = wkReadingGetLinkFromTitleEl( titleEl );
 		var argPage = link ? link.page : '';
@@ -888,7 +894,7 @@
 			if ( typeof WK.wkCloseReadingMode === 'function' ) WK.wkCloseReadingMode();
 		} );
 	}
-	
+
 	wkReadingBindGlobalEsc();
 	wkReadingHistoryBindBack();
 
