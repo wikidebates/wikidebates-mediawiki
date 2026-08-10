@@ -275,7 +275,7 @@ function wkInitEditSummaries() {
 		{ selector: '.zone-introduction', labelReorgKey: 'wk-summary-reorg-sections', labelRenomKey: 'wk-summary-rename-section', labelSuppKey: 'wk-summary-delete-section', labelSuppBisKey: 'wk-summary-delete-section-untitled', labelAjoutKey: 'wk-summary-add-section' },
 		{ selector: '.zone-voir-Wikipedia', labelReorgKey: 'wk-summary-reorg-articles', labelRenomKey: 'wk-summary-rename-article', labelSuppKey: 'wk-summary-delete-article', labelAjoutKey: 'wk-summary-add-wikipedia-article' },
 		{ selector: '.zone-debats-connexes', labelReorgKey: 'wk-summary-reorg-debats', labelRenomKey: 'wk-summary-rename-debat', labelSuppKey: 'wk-summary-delete-debat', labelAjoutKey: 'wk-summary-add-debat' },
-		{ selector: '.zone-interlangue', labelReorgKey: 'wk-summary-reorg-interlang', labelSuppKey: 'wk-summary-delete-interlang', labelAjoutKey: 'wk-summary-add-interlang' },
+		{ selector: '.zone-interlangue', labelReorgKey: 'wk-summary-reorg-interlang', labelSuppKey: 'wk-summary-delete-interlang', labelAjoutKey: 'wk-summary-add-interlang', sectionKey: 'wk-summary-section-interlanguage-link', customSummary: true },
 		{ selector: '.zone-citations', labelReorgKey: 'wk-summary-reorg-citations', labelSuppKey: 'wk-summary-delete-citation', labelSuppBisKey: 'wk-summary-delete-citation-generic', labelAjoutKey: 'wk-summary-add-citation' },
 		{ selector: '.zone-references', labelReorgKey: 'wk-summary-reorg-references', labelSuppKey: 'wk-summary-delete-reference', labelSuppBisKey: 'wk-summary-delete-reference-generic', labelAjoutKey: 'wk-summary-add-reference' }
 	];
@@ -409,11 +409,279 @@ function wkInitEditSummaries() {
 		return '';
 	}
 
+	/* =========================
+		Résumés spécifiques : métadonnées d’argument
+	========================= */
+
+	var managedSummaryParts = [];
+	var interlangStates = [];
+	var interlangStateByElement = new WeakMap();
+
+	function getControlValue( el ) {
+		if ( !el ) return '';
+
+		var value = $( el ).val();
+		if ( Array.isArray( value ) ) value = value.length ? value[ 0 ] : '';
+
+		return ( value === null || typeof value === 'undefined' ) ? '' : String( value ).trim();
+	}
+
+	function getPrimaryFieldFromZone( zoneSelector ) {
+		var zone = D.querySelector( zoneSelector );
+		if ( !zone ) return null;
+
+		if ( zone.matches && zone.matches( 'input, textarea, select' ) ) return zone;
+
+		var fields = zone.querySelectorAll( 'input, textarea, select' );
+		for ( var i = 0; i < fields.length; i++ ) {
+			var field = fields[ i ];
+			var type = ( field.getAttribute( 'type' ) || '' ).toLowerCase();
+
+			if (
+				type === 'hidden' ||
+				type === 'button' ||
+				type === 'submit' ||
+				type === 'reset' ||
+				type === 'checkbox' ||
+				type === 'radio' ||
+				field.name === 'wpSummary'
+			) {
+				continue;
+			}
+
+			return field;
+		}
+
+		return null;
+	}
+
+	function formatSectionText( sectionKey, message ) {
+		if ( D.getElementById( 'formName' ) ) return message;
+
+		return '/* ' + WK.wkMsg( sectionKey ) + ' */ ' + message;
+	}
+
+	function formatSectionSummary( sectionKey, messageKey, value ) {
+		return formatSectionText( sectionKey, WK.wkMsg( messageKey, value ) );
+	}
+
+	function setManagedSummaryParts( parts ) {
+		var $summary = getSummaryField();
+		if ( !$summary.length ) return;
+
+		var current = $summary.val() || '';
+
+		managedSummaryParts.forEach( function ( part ) {
+			if ( current === part ) {
+				current = '';
+				return;
+			}
+
+			if ( current.indexOf( part + ' + ' ) === 0 ) {
+				current = current.slice( part.length + 3 );
+				return;
+			}
+
+			/*	Si #formName existe, le résumé peut déjà commencer par un
+				préfixe de section. La première action gérée est alors collée
+				directement après ce préfixe, sans séparateur « + ». */
+			var sectionEnd = current.indexOf( '*/ ' );
+			if ( sectionEnd !== -1 ) {
+				var sectionActionStart = sectionEnd + 3;
+				if ( current.slice( sectionActionStart, sectionActionStart + part.length ) === part ) {
+					var sectionActionEnd = sectionActionStart + part.length;
+
+					if ( current.slice( sectionActionEnd, sectionActionEnd + 3 ) === ' + ' ) {
+						current = current.slice( 0, sectionActionStart ) + current.slice( sectionActionEnd + 3 );
+					} else if ( sectionActionEnd === current.length ) {
+						current = current.slice( 0, sectionActionStart );
+					}
+					return;
+				}
+			}
+
+			var middle = ' + ' + part + ' + ';
+			if ( current.indexOf( middle ) !== -1 ) {
+				current = current.replace( middle, ' + ' );
+				return;
+			}
+
+			var end = ' + ' + part;
+			if ( current.slice( -end.length ) === end ) {
+				current = current.slice( 0, -end.length );
+			}
+		} );
+
+		var next = current;
+		parts.forEach( function ( part ) {
+			if ( !next ) {
+				next = part;
+			} else if ( next.slice( -3 ) === '*/ ' ) {
+				next += part;
+			} else {
+				next += ' + ' + part;
+			}
+		} );
+
+		managedSummaryParts = parts.slice();
+
+		if ( next === current ) return;
+
+		$summary.val( next );
+		fireNativeInputEvent( $summary.get( 0 ) );
+	}
+
+	var singleValueSummaryZones = [
+		{
+			selector: '.zone-nom-consacre',
+			sectionKey: 'wk-summary-section-established-name',
+			addKey: 'wk-summary-established-name-add',
+			modifyKey: 'wk-summary-established-name-modify',
+			deleteKey: 'wk-summary-established-name-delete'
+		},
+		{
+			selector: '.zone-debat-dedie',
+			sectionKey: 'wk-summary-section-dedicated-debate',
+			addKey: 'wk-summary-dedicated-debate-add',
+			modifyKey: 'wk-summary-dedicated-debate-modify',
+			deleteKey: 'wk-summary-dedicated-debate-delete'
+		}
+	];
+
+	singleValueSummaryZones.forEach( function ( config ) {
+		config.field = getPrimaryFieldFromZone( config.selector );
+		config.initialValue = getControlValue( config.field );
+	} );
+
+	function getInterlangFields( container ) {
+		if ( !container || !container.querySelectorAll ) return { language: null, page: null };
+
+		var root = getInstanceFieldsRootFromElement( container ) || container;
+		var selects = Array.from( root.querySelectorAll( 'select' ) );
+		var language = null;
+		var page = root.querySelector( 'select.pfTokens, input.pfTokens, textarea.pfTokens' );
+
+		if ( page && selects.indexOf( page ) !== -1 ) {
+			language = selects.find( function ( select ) { return select !== page; } ) || null;
+		} else {
+			language = selects.length ? selects[ 0 ] : null;
+			if ( !page && selects.length > 1 ) page = selects[ 1 ];
+		}
+
+		if ( !page ) {
+			var fields = Array.from( root.querySelectorAll( 'input, textarea' ) ).filter( function ( field ) {
+				var type = ( field.getAttribute( 'type' ) || '' ).toLowerCase();
+				return type !== 'hidden' && type !== 'button' && type !== 'submit' && type !== 'reset';
+			} );
+
+			page = fields.length ? fields[ fields.length - 1 ] : null;
+		}
+
+		return { language: language, page: page };
+	}
+
+	function getInterlangData( container ) {
+		var fields = getInterlangFields( container );
+
+		return {
+			language: getControlValue( fields.language ),
+			page: getControlValue( fields.page )
+		};
+	}
+
+	function registerInterlangInstance( container, isInitial ) {
+		if ( !container ) return null;
+
+		var existing = interlangStateByElement.get( container );
+		if ( existing ) return existing;
+
+		var current = getInterlangData( container );
+		var state = {
+			element: container,
+			initial: isInitial ? current : { language: '', page: '' },
+			removed: false
+		};
+
+		interlangStates.push( state );
+		interlangStateByElement.set( container, state );
+
+		return state;
+	}
+
+	function formatInterlangLink( data ) {
+		if ( !data || !data.language || !data.page ) return '';
+
+		return '[[:' + data.language + ':' + data.page + '|' + data.page + ']]';
+	}
+
+	function recomputeManagedSummaries() {
+		var parts = [];
+
+		singleValueSummaryZones.forEach( function ( config ) {
+			if ( !config.field ) return;
+
+			var initial = config.initialValue;
+			var current = getControlValue( config.field );
+
+			if ( initial === current ) return;
+
+			if ( initial === '' && current !== '' ) {
+				parts.push( formatSectionSummary( config.sectionKey, config.addKey, current ) );
+			} else if ( initial !== '' && current === '' ) {
+				parts.push( formatSectionSummary( config.sectionKey, config.deleteKey, initial ) );
+			} else if ( current !== '' ) {
+				parts.push( formatSectionSummary( config.sectionKey, config.modifyKey, current ) );
+			}
+		} );
+
+		interlangStates.forEach( function ( state ) {
+			var initial = state.initial;
+			var current = state.removed ? { language: '', page: '' } : getInterlangData( state.element );
+			var initialLink = formatInterlangLink( initial );
+			var currentLink = formatInterlangLink( current );
+
+			if ( !initialLink && currentLink ) {
+				parts.push( formatSectionSummary(
+					'wk-summary-section-interlanguage-link',
+					'wk-summary-interlanguage-page-add',
+					currentLink
+				) );
+			} else if ( initialLink && !currentLink ) {
+				parts.push( formatSectionSummary(
+					'wk-summary-section-interlanguage-link',
+					'wk-summary-interlanguage-page-delete',
+					initialLink
+				) );
+			} else if (
+				initialLink &&
+				currentLink &&
+				(
+					initial.language !== current.language ||
+					initial.page !== current.page
+				)
+			) {
+				parts.push( formatSectionSummary(
+					'wk-summary-section-interlanguage-link',
+					'wk-summary-interlanguage-page-modify',
+					currentLink
+				) );
+			}
+		} );
+
+		setManagedSummaryParts( parts );
+	}
+
+	getZoneInstanceElements( '.zone-interlangue' ).forEach( function ( container ) {
+		registerInterlangInstance( container, true );
+	} );
+
 	/*	Nettoyage namespaces (sécurité double init) */
 	$D.off( '.wkSummaryPF' );
 	$D.off( '.wkSummaryReorder' );
 	$D.off( '.wkSummaryCheckbox' );
 	$D.off( '.wkSumSelect2' );
+	$D.off( '.wkSummaryCustom' );
+	$D.off( '.wkTokenRemove' );
 	$D.off( 'click.wkKeywordRemove' );
 	$D.off( 'change.wkProgress' );
 	$D.off( 'click.wkResumeOps' );
@@ -425,6 +693,7 @@ function wkInitEditSummaries() {
 
 		var zone = findZoneFromElement( a );
 		if ( !zone ) return;
+		if ( zone.customSummary ) return;
 
 		var titre = getTitreFromRemoveLink( a );
 		if ( !titre ) return;
@@ -447,6 +716,12 @@ function wkInitEditSummaries() {
 	$D.on( 'click.wkSummaryPF', '.instanceAddAbove a, .multipleTemplateAdder', function () {
 		var zone = findZoneFromElement( this );
 		if ( !zone ) return;
+
+		if ( zone.customSummary ) {
+			W.ajoutInstance = false;
+			W.ajoutInstanceZone = null;
+			return;
+		}
 
 		if (
 			zone.selector === '.zone-introduction' ||
@@ -505,7 +780,9 @@ function wkInitEditSummaries() {
 
 		var ordreFinal = getOrdre( zoneSelector );
 		if ( !arraysEqual( st.ordreInitial, ordreFinal ) ) {
-			fillEditSummary( WK.wkMsg( zone.labelReorgKey ) );
+			var reorgMessage = WK.wkMsg( zone.labelReorgKey );
+			if ( zone.sectionKey ) reorgMessage = formatSectionText( zone.sectionKey, reorgMessage );
+			fillEditSummary( reorgMessage );
 			st.done = true;
 		}
 		st.active = false;
@@ -514,6 +791,7 @@ function wkInitEditSummaries() {
 	/*	Select2 : ajout d’une instance existante */
 	$D.on( 'select2:select.wkSumSelect2', 'select', function ( e ) {
 		if ( !e || !e.params || !e.params.data ) return;
+		if ( $( this ).closest( '.zone-nom-consacre, .zone-debat-dedie, .zone-interlangue' ).length ) return;
 
 		var match = ( e.params.data.text || '' ).trim();
 		if ( !match ) return;
@@ -531,31 +809,104 @@ function wkInitEditSummaries() {
 			msg = WK.wkMsg( 'wk-summary-add-generic', match );
 		}
 
+		if ( $( this ).closest( '.zone-mots-cles' ).length ) {
+			msg = formatSectionText( 'wk-summary-section-keywords', msg );
+		}
+
 		fillEditSummary( msg );
 	} );
 
+	/*	Nom consacré / débat dédié / interlangue : résumés fondés sur l’état initial. */
+	$D.on(
+		'input.wkSummaryCustom change.wkSummaryCustom blur.wkSummaryCustom select2:select.wkSummaryCustom select2:unselect.wkSummaryCustom select2:clear.wkSummaryCustom',
+		'input, textarea, select',
+		function () {
+			var $field = $( this );
+
+			if ( $field.closest( '.zone-interlangue' ).length ) {
+				var container = getInstanceContainerFromElement( this );
+				if ( container ) registerInterlangInstance( container, false );
+				recomputeManagedSummaries();
+				return;
+			}
+
+			if ( $field.closest( '.zone-nom-consacre, .zone-debat-dedie' ).length ) {
+				recomputeManagedSummaries();
+			}
+		}
+	);
+
+	D.addEventListener( 'click', function ( e ) {
+		var a = e.target && e.target.closest ? e.target.closest( '.instanceRemove a' ) : null;
+		if ( !a || !$( a ).closest( '.zone-interlangue' ).length ) return;
+
+		var container = getInstanceContainerFromElement( a );
+		if ( !container ) return;
+
+		var state = registerInterlangInstance( container, false );
+		if ( !state ) return;
+
+		state.removed = true;
+		setTimeout( recomputeManagedSummaries, 0 );
+	}, true );
+
 	/*	Checkboxes avertissements / rubriques */
+	$D.on( 'click.wkSummaryCheckbox', '.zone-bandeaux .checkboxesSpan .oo-ui-inputWidget-input', function () {
+		fillEditSummaryForCheckbox(
+			$( this ),
+			formatSectionText( 'wk-summary-section-warning-banners', WK.wkMsg( 'wk-summary-warning-add' ) ),
+			formatSectionText( 'wk-summary-section-warning-banners', WK.wkMsg( 'wk-summary-warning-remove' ) )
+		);
+	} );
+
 	$D.on( 'click.wkSummaryCheckbox', '.checkboxesSpan .oo-ui-inputWidget-input', function () {
-		if ( $( this ).closest( '.zone-rubriques' ).length === 0 ) {
+		if ( $( this ).closest( '.zone-rubriques, .zone-bandeaux' ).length === 0 ) {
 			fillEditSummaryForCheckbox( $( this ), WK.wkMsg( 'wk-summary-warning-add' ), WK.wkMsg( 'wk-summary-warning-remove' ) );
 		}
 	} );
 
 	$D.on( 'click.wkSummaryCheckbox', '.zone-rubriques .oo-ui-inputWidget-input', function () {
-		fillEditSummaryForCheckbox( $( this ), WK.wkMsg( 'wk-summary-rubrique-add' ), WK.wkMsg( 'wk-summary-rubrique-remove' ) );
+		fillEditSummaryForCheckbox(
+			$( this ),
+			formatSectionText( 'wk-summary-section-general-sections', WK.wkMsg( 'wk-summary-rubrique-add' ) ),
+			formatSectionText( 'wk-summary-section-general-sections', WK.wkMsg( 'wk-summary-rubrique-remove' ) )
+		);
 	} );
 
 	/*	Progress/bandeaux */
 	$D.on( 'change.wkProgress', '.mw-special-FormEdit .zone-bandeaux .mandatoryField', function () {
 		var bannerName = $( '.zone-bandeaux select.mandatoryField option:selected' ).val();
-		fillEditSummary( WK.wkMsg( 'wk-summary-progress-change', bannerName ) );
+		fillEditSummary( formatSectionText(
+			'wk-summary-section-warning-banners',
+			WK.wkMsg( 'wk-summary-progress-change', bannerName )
+		) );
 	} );
 
-	/*	Keywords : retrait d’un tag (Select2 UI) */
-	$D.on( 'click.wkKeywordRemove', '.select2-selection__choice__remove', function () {
-		var $li = $( this ).closest( '.select2-selection__choice' );
-		var keyword = ( $li.find( '.select2-match-entire' ).text() || '' ).trim();
-		if ( keyword ) fillEditSummary( WK.wkMsg( 'wk-summary-keyword-remove', keyword ) );
+	/*	Tokens Select2 : suppression.
+		On écoute select2:unselect sur le champ source plutôt que le clic sur
+		.select2-selection__choice__remove : on connaît ainsi toujours la zone
+		d’origine et une seule logique produit le résumé. */
+	$D.on( 'select2:unselect.wkTokenRemove', 'select, input', function ( e ) {
+		var $field = $( this );
+
+		/*	Le débat dédié est déjà géré par recomputeManagedSummaries(). */
+		if ( $field.closest( '.zone-debat-dedie' ).length ) return;
+
+		var removed = '';
+		try {
+			removed = e && e.params && e.params.data && typeof e.params.data.text === 'string'
+				? e.params.data.text.trim()
+				: '';
+		} catch ( err ) {}
+
+		if ( !removed ) return;
+
+		var msg = WK.wkMsg( 'wk-summary-keyword-remove', removed );
+		if ( $field.closest( '.zone-mots-cles' ).length ) {
+			msg = formatSectionText( 'wk-summary-section-keywords', msg );
+		}
+
+		fillEditSummary( msg );
 	} );
 
 	/*	Sujet complet : logique Vector conservée */

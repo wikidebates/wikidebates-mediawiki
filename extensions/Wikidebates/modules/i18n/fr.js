@@ -53,8 +53,8 @@ mw.messages.set( {
 	'wk-summary-add-citation': 'Ajout d’une citation',
 	'wk-summary-add-reference': 'Ajout d’une référence',
 
-	'wk-summary-warning-add': 'Ajout du bandeau d’avertissement',
-	'wk-summary-warning-remove': 'Retrait du bandeau d’avertissement',
+	'wk-summary-warning-add': 'Ajout du bandeau',
+	'wk-summary-warning-remove': 'Suppression du bandeau',
 	'wk-summary-rubrique-add': 'Ajout de la rubrique',
 	'wk-summary-rubrique-remove': 'Retrait de la rubrique',
 
@@ -67,6 +67,26 @@ mw.messages.set( {
 	'wk-summary-subject-full-add': 'Ajout du sujet complet',
 	'wk-summary-subject-full-mod': 'Modification du sujet complet',
 	'wk-summary-debat-detail-add': 'Ajout du débat détaillé : $1',
+
+	/*	Métadonnées d’argument	*/
+	'wk-summary-section-established-name': 'Nom consacré',
+	'wk-summary-established-name-add': 'Ajout du nom : « $1 »',
+	'wk-summary-established-name-modify': 'Renommage du nom en : « $1 »',
+	'wk-summary-established-name-delete': 'Suppression du nom : « $1 »',
+
+	'wk-summary-section-dedicated-debate': 'Débat dédié',
+	'wk-summary-dedicated-debate-add': 'Ajout du débat : « $1 »',
+	'wk-summary-dedicated-debate-modify': 'Renommage du débat en : « $1 »',
+	'wk-summary-dedicated-debate-delete': 'Suppression du débat : « $1 »',
+
+	'wk-summary-section-warning-banners': 'Bandeaux d’avertissement',
+	'wk-summary-section-general-sections': 'Rubriques générales',
+	'wk-summary-section-keywords': 'Mots-clés',
+
+	'wk-summary-section-interlanguage-link': 'Liens interlangue',
+	'wk-summary-interlanguage-page-add': 'Ajout de la page : $1',
+	'wk-summary-interlanguage-page-modify': 'Modification de la page en : $1',
+	'wk-summary-interlanguage-page-delete': 'Suppression de la page : $1',
 
 	/*	Génériques fallback	*/
 	'wk-summary-add-generic': 'Ajout de « $1 »',

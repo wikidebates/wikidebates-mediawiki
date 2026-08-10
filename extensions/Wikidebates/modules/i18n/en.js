@@ -53,8 +53,8 @@ mw.messages.set( {
 	'wk-summary-add-citation': 'Adding a quote',
 	'wk-summary-add-reference': 'Adding a reference',
 
-	'wk-summary-warning-add': 'Added warning banner',
-	'wk-summary-warning-remove': 'Removed warning banner',
+	'wk-summary-warning-add': 'Added banner',
+	'wk-summary-warning-remove': 'Removed banner',
 	'wk-summary-rubrique-add': 'Added section',
 	'wk-summary-rubrique-remove': 'Removed section',
 
@@ -67,6 +67,26 @@ mw.messages.set( {
 	'wk-summary-subject-full-add': 'Adding full subject',
 	'wk-summary-subject-full-mod': 'Modifying full subject',
 	'wk-summary-debate-detail-add': 'Adding detailed debate: $1',
+
+	/* Argument metadata */
+	'wk-summary-section-established-name': 'Established name',
+	'wk-summary-established-name-add': 'Adding name: “$1”',
+	'wk-summary-established-name-modify': 'Renaming name to: “$1”',
+	'wk-summary-established-name-delete': 'Deleting name: “$1”',
+
+	'wk-summary-section-dedicated-debate': 'Dedicated debate',
+	'wk-summary-dedicated-debate-add': 'Adding debate: “$1”',
+	'wk-summary-dedicated-debate-modify': 'Renaming debate to: “$1”',
+	'wk-summary-dedicated-debate-delete': 'Deleting debate: “$1”',
+
+	'wk-summary-section-warning-banners': 'Warning banners',
+	'wk-summary-section-general-sections': 'General sections',
+	'wk-summary-section-keywords': 'Keywords',
+
+	'wk-summary-section-interlanguage-link': 'Interlanguage links',
+	'wk-summary-interlanguage-page-add': 'Adding page: $1',
+	'wk-summary-interlanguage-page-modify': 'Changing page to: $1',
+	'wk-summary-interlanguage-page-delete': 'Deleting page: $1',
 
 	/* Generic */
 	'wk-summary-add-generic': 'Adding “$1”',
