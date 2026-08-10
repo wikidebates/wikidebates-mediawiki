@@ -180,38 +180,38 @@ class DailyRecentChangesMail extends Maintenance {
 					$showDiff = false;
 
 					if ( $logType === 'newusers' ) {
-						$displayTitle = 'Création du compte utilisateur : ' . $pageTitle;
+						$displayTitle = 'Création du compte utilisateur : « ' . $pageTitle . ' »';
 						$groupKey = 'user-creations';
 						$showUser = false;
 						$showComment = false;
 					} elseif ( $logType === 'delete' && $logAction === 'delete' ) {
-						$displayTitle = 'Suppression de la page : ' . $title;
+						$displayTitle = 'Suppression de la page : « ' . $title . ' »';
 						$groupKey = 'page-deletions';
 					} elseif ( $logType === 'delete' && $logAction === 'restore' ) {
-						$displayTitle = 'Restauration de la page : ' . $title;
+						$displayTitle = 'Restauration de la page : « ' . $title . ' »';
 						$groupKey = 'page-restorations';
 					} elseif ( $logType === 'block' ) {
-						$displayTitle = 'Blocage de l\'utilisateur : ' . $pageTitle;
+						$displayTitle = 'Blocage de l\'utilisateur : « ' . $pageTitle . ' »';
 						$groupKey = 'user-blocks';
 						$showUser = false;
 					} elseif ( $logType === 'move' ) {
-						$displayTitle = 'Renommage de la page : ' . $title;
+						$displayTitle = 'Renommage de la page : « ' . $title . ' »';
 						$groupKey = 'page-moves';
 					} elseif ( $logType === 'protect' ) {
-						$displayTitle = 'Protection de la page : ' . $title;
+						$displayTitle = 'Protection de la page : « ' . $title . ' »';
 						$groupKey = 'page-protections';
 					} elseif ( $logType === 'upload' ) {
-						$displayTitle = 'Import du fichier : ' . $title;
+						$displayTitle = 'Import du fichier : « ' . $title . ' »';
 						$groupKey = 'file-uploads';
 					} elseif ( $logType === 'rights' ) {
-						$displayTitle = 'Modification des droits de l\'utilisateur : ' . $pageTitle;
+						$displayTitle = 'Modification des droits de l\'utilisateur : « ' . $pageTitle . ' »';
 						$groupKey = 'user-rights';
 					} else {
-						$displayTitle = 'Entrée de journal (' . $logType . '/' . $logAction . ') : ' . $title;
+						$displayTitle = 'Entrée de journal (' . $logType . '/' . $logAction . ') : « ' . $title . ' »';
 						$groupKey = 'other-logs';
 					}
 				} elseif ( $type === 1 || $type === 2 ) {
-					$displayTitle = 'Création de la page : ' . $title;
+					$displayTitle = 'Création de la page : « ' . $title . ' »';
 					$groupKey = 'page-creations';
 
 					if ( $comment === 'Création de la page' ) {
@@ -219,14 +219,14 @@ class DailyRecentChangesMail extends Maintenance {
 					}
 				} elseif ( $type === 0 ) {
 					if ( $delta !== null && $delta <= -100 ) {
-						$displayTitle = 'Suppression de contenu sur la page : ' . $title;
+						$displayTitle = 'Suppression de contenu sur la page : « ' . $title . ' »';
 						$groupKey = 'content-deletions';
 					} else {
-						$displayTitle = 'Modification de la page : ' . $title;
+						$displayTitle = 'Modification de la page : « ' . $title . ' »';
 						$groupKey = 'page-edits';
 					}
 				} else {
-					$displayTitle = 'Modification de la page : ' . $title;
+					$displayTitle = 'Modification de la page : « ' . $title . ' »';
 				}
 
 				$entry = "[$time] $displayTitle\n";
