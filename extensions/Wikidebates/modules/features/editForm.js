@@ -231,10 +231,10 @@ function fillEditSummaryForCheckbox( $object, addingMessage, removingMessage ) {
 	var checked = $object.prop( 'checked' );
 	var bannerName = $object.parent();
 	bannerName = $( bannerName ).next();
-	bannerName = $( bannerName ).text() + ' »';
+	bannerName = $( bannerName ).text().replace( /^[\s\u00a0\u202f]+|[\s\u00a0\u202f]+$/g, '' );
 
-	var actionDone = checked ? ( addingMessage + ' «' ) : ( removingMessage + ' «' );
-	fillEditSummary( actionDone + bannerName );
+	var actionDone = checked ? addingMessage : removingMessage;
+	fillEditSummary( actionDone + ' ' + WK.wkMsg( 'wk-summary-quoted-value', bannerName ) );
 }
 
 /* =========================
@@ -545,6 +545,20 @@ function wkInitEditSummaries() {
 			addKey: 'wk-summary-dedicated-debate-add',
 			modifyKey: 'wk-summary-dedicated-debate-modify',
 			deleteKey: 'wk-summary-dedicated-debate-delete'
+		},
+		{
+			selector: '.zone-sujet-debat',
+			sectionKey: 'wk-summary-section-debate-subject',
+			addKey: 'wk-summary-subject-add',
+			modifyKey: 'wk-summary-subject-mod',
+			deleteKey: 'wk-summary-subject-delete'
+		},
+		{
+			selector: '.zone-sujet-developpe',
+			sectionKey: 'wk-summary-section-developed-subject',
+			addKey: 'wk-summary-developed-subject-add',
+			modifyKey: 'wk-summary-developed-subject-modify',
+			deleteKey: 'wk-summary-developed-subject-delete'
 		}
 	];
 
@@ -552,6 +566,9 @@ function wkInitEditSummaries() {
 		config.field = getPrimaryFieldFromZone( config.selector );
 		config.initialValue = getControlValue( config.field );
 	} );
+
+	var progressField = D.querySelector( '.zone-bandeaux select' );
+	var progressInitialValue = getControlValue( progressField );
 
 	function getInterlangFields( container ) {
 		if ( !container || !container.querySelectorAll ) return { language: null, page: null };
@@ -634,6 +651,17 @@ function wkInitEditSummaries() {
 			}
 		} );
 
+		if ( progressField ) {
+			var progressCurrentValue = getControlValue( progressField );
+			if ( progressCurrentValue !== progressInitialValue ) {
+				parts.push( formatSectionSummary(
+					'wk-summary-section-warning-banners',
+					'wk-summary-progress-change',
+					progressCurrentValue
+				) );
+			}
+		}
+
 		interlangStates.forEach( function ( state ) {
 			var initial = state.initial;
 			var current = state.removed ? { language: '', page: '' } : getInterlangData( state.element );
@@ -671,9 +699,27 @@ function wkInitEditSummaries() {
 		setManagedSummaryParts( parts );
 	}
 
-	getZoneInstanceElements( '.zone-interlangue' ).forEach( function ( container ) {
-		registerInterlangInstance( container, true );
-	} );
+	/*	Page Forms peut imbriquer .multipleTemplateInstanceTable et
+		.multipleTemplateInstance pour une même ligne. On initialise donc
+		les états interlangues à partir du champ pfTokens réel afin de ne
+		pas enregistrer deux fois la même instance. */
+	( function () {
+		var zone = D.querySelector( '.zone-interlangue' );
+		var containers = [];
+
+		if ( zone ) {
+			Array.from( zone.querySelectorAll( 'select.pfTokens, input.pfTokens, textarea.pfTokens' ) ).forEach( function ( field ) {
+				var container = getInstanceContainerFromElement( field );
+				if ( container && containers.indexOf( container ) === -1 ) containers.push( container );
+			} );
+		}
+
+		if ( !containers.length ) containers = getZoneInstanceElements( '.zone-interlangue' );
+
+		containers.forEach( function ( container ) {
+			registerInterlangInstance( container, true );
+		} );
+	} )();
 
 	/*	Nettoyage namespaces (sécurité double init) */
 	$D.off( '.wkSummaryPF' );
@@ -791,7 +837,7 @@ function wkInitEditSummaries() {
 	/*	Select2 : ajout d’une instance existante */
 	$D.on( 'select2:select.wkSumSelect2', 'select', function ( e ) {
 		if ( !e || !e.params || !e.params.data ) return;
-		if ( $( this ).closest( '.zone-nom-consacre, .zone-debat-dedie, .zone-interlangue' ).length ) return;
+		if ( $( this ).closest( '.zone-nom-consacre, .zone-debat-dedie, .zone-sujet-debat, .zone-sujet-developpe, .zone-interlangue' ).length ) return;
 
 		var match = ( e.params.data.text || '' ).trim();
 		if ( !match ) return;
@@ -830,7 +876,7 @@ function wkInitEditSummaries() {
 				return;
 			}
 
-			if ( $field.closest( '.zone-nom-consacre, .zone-debat-dedie' ).length ) {
+			if ( $field.closest( '.zone-nom-consacre, .zone-debat-dedie, .zone-sujet-debat, .zone-sujet-developpe' ).length ) {
 				recomputeManagedSummaries();
 			}
 		}
@@ -873,13 +919,10 @@ function wkInitEditSummaries() {
 		);
 	} );
 
-	/*	Progress/bandeaux */
-	$D.on( 'change.wkProgress', '.mw-special-FormEdit .zone-bandeaux .mandatoryField', function () {
-		var bannerName = $( '.zone-bandeaux select.mandatoryField option:selected' ).val();
-		fillEditSummary( formatSectionText(
-			'wk-summary-section-warning-banners',
-			WK.wkMsg( 'wk-summary-progress-change', bannerName )
-		) );
+	/*	Niveau d’avancement : résumé fondé sur l’état initial. */
+	$D.on( 'change.wkProgress', '.zone-bandeaux select', function () {
+		if ( this !== progressField ) return;
+		recomputeManagedSummaries();
 	} );
 
 	/*	Tokens Select2 : suppression.
@@ -889,8 +932,8 @@ function wkInitEditSummaries() {
 	$D.on( 'select2:unselect.wkTokenRemove', 'select, input', function ( e ) {
 		var $field = $( this );
 
-		/*	Le débat dédié est déjà géré par recomputeManagedSummaries(). */
-		if ( $field.closest( '.zone-debat-dedie' ).length ) return;
+		/*	Ces zones sont déjà gérées par recomputeManagedSummaries(). */
+		if ( $field.closest( '.zone-debat-dedie, .zone-sujet-debat, .zone-interlangue' ).length ) return;
 
 		var removed = '';
 		try {

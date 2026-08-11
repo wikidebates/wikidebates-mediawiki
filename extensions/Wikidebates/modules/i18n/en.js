@@ -62,34 +62,42 @@ mw.messages.set( {
 	'wk-summary-progress-change': 'Debate progress level changed to “$1”',
 	'wk-summary-keyword-remove': 'Deleting “$1”',
 	'wk-summary-subject-main-change': 'Changing the main subject of the debate: $1',
-	'wk-summary-subject-add': 'Adding subject: “$1”',
-	'wk-summary-subject-mod': 'Modified subject: “$1”',
+	'wk-summary-subject-add': 'Adding “$1” as the main subject of the debate',
+	'wk-summary-subject-mod': 'Main subject of the debate replaced with “$1”',
+	'wk-summary-subject-delete': 'Deleting subject “$1”',
 	'wk-summary-subject-full-add': 'Adding full subject',
 	'wk-summary-subject-full-mod': 'Modifying full subject',
 	'wk-summary-debate-detail-add': 'Adding detailed debate: $1',
 
 	/* Argument metadata */
+	'wk-summary-section-debate-subject': 'Debate subject',
+	'wk-summary-section-developed-subject': 'Developed subject',
+	'wk-summary-developed-subject-add': 'Adding “$1” as the developed subject of the debate',
+	'wk-summary-developed-subject-modify': 'Developed subject of the debate replaced with “$1”',
+	'wk-summary-developed-subject-delete': 'Deleting “$1”',
+
 	'wk-summary-section-established-name': 'Established name',
-	'wk-summary-established-name-add': 'Adding name: “$1”',
-	'wk-summary-established-name-modify': 'Renaming name to: “$1”',
-	'wk-summary-established-name-delete': 'Deleting name: “$1”',
+	'wk-summary-established-name-add': 'Adding the established name “$1”',
+	'wk-summary-established-name-modify': 'New established name for the argument: “$1”',
+	'wk-summary-established-name-delete': 'Removing the established name “$1”',
 
 	'wk-summary-section-dedicated-debate': 'Dedicated debate',
-	'wk-summary-dedicated-debate-add': 'Adding debate: “$1”',
-	'wk-summary-dedicated-debate-modify': 'Renaming debate to: “$1”',
-	'wk-summary-dedicated-debate-delete': 'Deleting debate: “$1”',
+	'wk-summary-dedicated-debate-add': 'Adding the debate dedicated to the argument: “$1”',
+	'wk-summary-dedicated-debate-modify': 'New dedicated debate title: “$1”',
+	'wk-summary-dedicated-debate-delete': 'Deleting dedicated debate “$1”',
 
 	'wk-summary-section-warning-banners': 'Warning banners',
 	'wk-summary-section-general-sections': 'General sections',
 	'wk-summary-section-keywords': 'Keywords',
 
 	'wk-summary-section-interlanguage-link': 'Interlanguage links',
-	'wk-summary-interlanguage-page-add': 'Adding page: $1',
-	'wk-summary-interlanguage-page-modify': 'Changing page to: $1',
-	'wk-summary-interlanguage-page-delete': 'Deleting page: $1',
+	'wk-summary-interlanguage-page-add': 'Adding a link to: $1',
+	'wk-summary-interlanguage-page-modify': 'Link renamed: $1',
+	'wk-summary-interlanguage-page-delete': 'Removing link to: $1',
 
 	/* Generic */
 	'wk-summary-add-generic': 'Adding “$1”',
+	'wk-summary-quoted-value': '“$1”',
 
 	/* Minerva menu (mobile) */
 	'wk-menu-about': 'About Wikidebates',

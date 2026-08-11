@@ -54,42 +54,50 @@ mw.messages.set( {
 	'wk-summary-add-reference': 'Ajout d’une référence',
 
 	'wk-summary-warning-add': 'Ajout du bandeau',
-	'wk-summary-warning-remove': 'Suppression du bandeau',
+	'wk-summary-warning-remove': 'Retrait du bandeau',
 	'wk-summary-rubrique-add': 'Ajout de la rubrique',
 	'wk-summary-rubrique-remove': 'Retrait de la rubrique',
 
 	/*	Autres résumés présents dans ton script	*/
-	'wk-summary-progress-change': 'Niveau d’avancement du débat changé à « $1 »',
+	'wk-summary-progress-change': 'Niveau d’avancement du débat passé à « $1 »',
 	'wk-summary-keyword-remove': 'Suppression de « $1 »',
 	'wk-summary-subject-main-change': 'Modification du sujet principal du débat : $1',
-	'wk-summary-subject-add': 'Ajout du sujet : « $1 »',
-	'wk-summary-subject-mod': 'Sujet modifié : « $1 »',
+	'wk-summary-subject-add': 'Ajout de « $1 » comme sujet principal du débat',
+	'wk-summary-subject-mod': 'Sujet principal du débat remplacé par « $1 »',
+	'wk-summary-subject-delete': 'Suppression du sujet « $1 »',
 	'wk-summary-subject-full-add': 'Ajout du sujet complet',
 	'wk-summary-subject-full-mod': 'Modification du sujet complet',
 	'wk-summary-debat-detail-add': 'Ajout du débat détaillé : $1',
 
 	/*	Métadonnées d’argument	*/
+	'wk-summary-section-debate-subject': 'Sujet du débat',
+	'wk-summary-section-developed-subject': 'Sujet développé',
+	'wk-summary-developed-subject-add': 'Ajout de « $1 » comme sujet développé du débat',
+	'wk-summary-developed-subject-modify': 'Sujet développé du débat remplacé par « $1 »',
+	'wk-summary-developed-subject-delete': 'Suppression de « $1 »',
+
 	'wk-summary-section-established-name': 'Nom consacré',
-	'wk-summary-established-name-add': 'Ajout du nom : « $1 »',
-	'wk-summary-established-name-modify': 'Renommage du nom en : « $1 »',
-	'wk-summary-established-name-delete': 'Suppression du nom : « $1 »',
+	'wk-summary-established-name-add': 'Ajout de l’appellation « $1 »',
+	'wk-summary-established-name-modify': 'Nouvelle appellation de l’argument : « $1 »',
+	'wk-summary-established-name-delete': 'Retrait de l’appellation « $1 »',
 
 	'wk-summary-section-dedicated-debate': 'Débat dédié',
-	'wk-summary-dedicated-debate-add': 'Ajout du débat : « $1 »',
-	'wk-summary-dedicated-debate-modify': 'Renommage du débat en : « $1 »',
-	'wk-summary-dedicated-debate-delete': 'Suppression du débat : « $1 »',
+	'wk-summary-dedicated-debate-add': 'Ajout du débat dédié à l’argument : « $1 »',
+	'wk-summary-dedicated-debate-modify': 'Nouveau titre de débat dédié : « $1 »',
+	'wk-summary-dedicated-debate-delete': 'Suppression du débat dédié « $1 »',
 
 	'wk-summary-section-warning-banners': 'Bandeaux d’avertissement',
 	'wk-summary-section-general-sections': 'Rubriques générales',
 	'wk-summary-section-keywords': 'Mots-clés',
 
 	'wk-summary-section-interlanguage-link': 'Liens interlangue',
-	'wk-summary-interlanguage-page-add': 'Ajout de la page : $1',
-	'wk-summary-interlanguage-page-modify': 'Modification de la page en : $1',
-	'wk-summary-interlanguage-page-delete': 'Suppression de la page : $1',
+	'wk-summary-interlanguage-page-add': 'Ajout d’un lien vers : $1',
+	'wk-summary-interlanguage-page-modify': 'Lien renommé : $1',
+	'wk-summary-interlanguage-page-delete': 'Suppression du lien vers : $1',
 
 	/*	Génériques fallback	*/
 	'wk-summary-add-generic': 'Ajout de « $1 »',
+	'wk-summary-quoted-value': '« $1 »',
 	
 	/*	Menu Minerva (mobile)	*/
 	'wk-menu-about': 'À propos de Wikidébats',
