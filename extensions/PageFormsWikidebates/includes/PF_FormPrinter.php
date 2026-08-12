@@ -1056,9 +1056,10 @@ END;
 			$hookContainer->run( 'PageForms::UserCanEditPage', [ $this->mPageTitle, &$userCanEditPage ] );
 		}
 
-		// Start off with a loading spinner - this will be removed by
-		// the JavaScript once everything has finished loading.
-		$form_text = self::displayLoadingImage();
+		// Do not inject the legacy loading block into the form HTML.
+		// It can leak into AJAX previews in contexts where Page Forms styles
+		// are not loaded, and the fork already hides it in normal forms.
+		$form_text = '';
 		if ( $is_query || $userCanEditPage ) {
 			$form_is_disabled = false;
 			// Show "Your IP address will be recorded" warning if
