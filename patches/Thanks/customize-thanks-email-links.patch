@@ -1,0 +1,42 @@
+diff --git a/includes/EchoCoreThanksPresentationModel.php b/includes/EchoCoreThanksPresentationModel.php
+--- a/includes/EchoCoreThanksPresentationModel.php
++++ b/includes/EchoCoreThanksPresentationModel.php
+@@ -68,8 +68,13 @@ class EchoCoreThanksPresentationModel extends EchoEventPresentationModel {
+ 	public function getBodyMessage() {
+ 		$comment = $this->getRevOrLogComment();
+ 		if ( $comment !== '' ) {
+-			$msg = new RawMessage( '$1' );
+-			$msg->plaintextParams( $comment );
++			if ( $this->getThankType() === 'rev' ) {
++				$msg = $this->msg( 'notification-body-rev-thank' );
++				$msg->plaintextParams( $comment );
++			} else {
++				$msg = new RawMessage( '$1' );
++				$msg->plaintextParams( $comment );
++			}
+ 			return $msg;
+ 		}
+ 		return false;
+@@ -144,11 +149,20 @@ class EchoCoreThanksPresentationModel extends EchoEventPresentationModel {
+ 
+ 	public function getSecondaryLinks() {
+ 		$pageLink = $this->getPageLink( $this->event->getTitle(), '', true );
++		$pageLink['label'] = $this->msg( 'notification-link-text-view-thanked-page' )->text();
++
+ 		if ( $this->isBundled() ) {
+ 			return [ $pageLink ];
+-		} else {
+-			return [ $this->getAgentLink(), $pageLink ];
+ 		}
++
++		$agentLink = $this->getAgentLink();
++		if ( $agentLink ) {
++			$msg = $this->msg( 'notification-link-text-view-thanking-user' );
++			$msg->plaintextParams( $this->event->getAgent()->getName() );
++			$agentLink['label'] = $msg->text();
++		}
++
++		return [ $agentLink, $pageLink ];
+ 	}
+ 
+ 	/**
