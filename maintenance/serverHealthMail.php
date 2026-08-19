@@ -320,7 +320,7 @@ class ServerHealthMail extends Maintenance {
 					}
 				}
 
-				$ua = $parsed['ua'] !== '' ? $parsed['ua'] : '(User-Agent vide)';
+				$ua = $this->normalizeUserAgent( $parsed['ua'] );
 
 				if ( !isset( $result[$wiki]['ua'][$ua] ) ) {
 					$result[$wiki]['ua'][$ua] = [
@@ -405,6 +405,20 @@ class ServerHealthMail extends Maintenance {
 		];
 	}
 
+	private function normalizeUserAgent( string $ua ): string {
+		if ( $ua === '' ) {
+			return '(User-Agent vide)';
+		}
+
+		$normalized = strtolower( $ua );
+
+		if ( str_contains( $normalized, 'meta-webindexer/' ) ) {
+			return 'Meta-WebIndexer';
+		}
+
+		return $ua;
+	}
+
 	private function classifyRequest( string $url ): array {
 		$parsed = parse_url( $url );
 
@@ -469,7 +483,7 @@ class ServerHealthMail extends Maintenance {
 				$suspicious = true;
 			}
 
-			foreach ( [ 'diff', 'oldid', 'mobileaction', 'redirect', 'topic_showpostid' ] as $name ) {
+			foreach ( [ 'diff', 'oldid', 'redirect', 'topic_showpostid' ] as $name ) {
 				if ( isset( $argNames[$name] ) ) {
 					$suspicious = true;
 					break;
