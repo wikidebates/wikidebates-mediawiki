@@ -44,6 +44,13 @@ class ServerHealthMail extends Maintenance {
 	private const WIKI_SUSPICIOUS_REQUEST_THRESHOLD = 25;
 	private const WIKI_SUSPICIOUS_IP_THRESHOLD = 20;
 
+	private const MAX_RECENT_DYNAMIC_LINES = 100;
+	private const MAX_RECENT_SUSPICIOUS_LINES = 100;
+	private const MAX_UA_LINES = 25;
+	private const MAX_MAIL_LINES_PER_WIKI = 40;
+	private const MAX_TOP_UAS = 10;
+	private const MAX_TOP_URLS = 15;
+
 	private const STATE_FILE = '/home/users/webmaster/.cache/wikidebates-server-health.json';
 
 	private array $wikis = [
@@ -74,7 +81,7 @@ class ServerHealthMail extends Maintenance {
 
 		$this->addOption(
 			'test-mail',
-			'Envoie immédiatement un mail de test, sans modifier l’état des alertes.',
+			'Envoie immédiatement un mail de test avec un diagnostic des logs récents, sans modifier l’état des alertes.',
 			false,
 			false
 		);
@@ -84,16 +91,16 @@ class ServerHealthMail extends Maintenance {
 		$windowMinutes = max( 1, (int)$this->getOption( 'window', 5 ) );
 		$configWiki = strtoupper( (string)$this->getOption( 'wiki', 'fr' ) );
 
-		if ( $this->hasOption( 'test-mail' ) ) {
-			$this->sendTestMail( $configWiki );
-			return;
-		}
-
 		$now = new DateTimeImmutable( 'now', new DateTimeZone( 'UTC' ) );
 		$since = $now->sub( new DateInterval( 'PT' . $windowMinutes . 'M' ) );
 
 		$server = $this->collectServerMetrics();
 		$logs = $this->analyseLogs( $since );
+
+		if ( $this->hasOption( 'test-mail' ) ) {
+			$this->sendTestMail( $configWiki, $server, $logs, $windowMinutes );
+			return;
+		}
 
 		$issues = [];
 		$affectedWikis = [];
@@ -240,6 +247,9 @@ class ServerHealthMail extends Maintenance {
 				'dynamicRequests' => 0,
 				'suspiciousRequests' => 0,
 				'suspiciousIps' => [],
+				'dynamicUrls' => [],
+				'recentDynamicLines' => [],
+				'recentSuspiciousLines' => [],
 				'ua' => [],
 			];
 
@@ -275,13 +285,39 @@ class ServerHealthMail extends Maintenance {
 
 				$result[$wiki]['pageRequests']++;
 
+				$safeUrl = $this->sanitizeUrl( $parsed['url'] );
+				$safeReferrer = $this->sanitizeUrl( $parsed['referrer'] );
+				$formattedLine = $this->formatLogLine(
+					$parsed,
+					$safeUrl,
+					$safeReferrer
+				);
+
 				if ( $class['dynamic'] ) {
 					$result[$wiki]['dynamicRequests']++;
+
+					if ( !isset( $result[$wiki]['dynamicUrls'][$safeUrl] ) ) {
+						$result[$wiki]['dynamicUrls'][$safeUrl] = [
+							'count' => 0,
+							'ips' => [],
+						];
+					}
+
+					$result[$wiki]['dynamicUrls'][$safeUrl]['count']++;
+					$result[$wiki]['dynamicUrls'][$safeUrl]['ips'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['recentDynamicLines'] ) < self::MAX_RECENT_DYNAMIC_LINES ) {
+						$result[$wiki]['recentDynamicLines'][] = $formattedLine;
+					}
 				}
 
 				if ( $class['suspicious'] ) {
 					$result[$wiki]['suspiciousRequests']++;
 					$result[$wiki]['suspiciousIps'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['recentSuspiciousLines'] ) < self::MAX_RECENT_SUSPICIOUS_LINES ) {
+						$result[$wiki]['recentSuspiciousLines'][] = $formattedLine;
+					}
 				}
 
 				$ua = $parsed['ua'] !== '' ? $parsed['ua'] : '(User-Agent vide)';
@@ -293,6 +329,7 @@ class ServerHealthMail extends Maintenance {
 						'suspicious' => 0,
 						'ips' => [],
 						'examples' => [],
+						'lines' => [],
 					];
 				}
 
@@ -305,10 +342,20 @@ class ServerHealthMail extends Maintenance {
 
 				if ( $class['suspicious'] ) {
 					$result[$wiki]['ua'][$ua]['suspicious']++;
+				}
 
-					if ( count( $result[$wiki]['ua'][$ua]['examples'] ) < 5 ) {
-						$result[$wiki]['ua'][$ua]['examples'][] = $parsed['url'];
-					}
+				if (
+					( $class['dynamic'] || $class['suspicious'] )
+					&& count( $result[$wiki]['ua'][$ua]['lines'] ) < self::MAX_UA_LINES
+				) {
+					$result[$wiki]['ua'][$ua]['lines'][] = $formattedLine;
+				}
+
+				if (
+					$class['suspicious']
+					&& count( $result[$wiki]['ua'][$ua]['examples'] ) < 8
+				) {
+					$result[$wiki]['ua'][$ua]['examples'][] = $safeUrl;
 				}
 			}
 
@@ -344,10 +391,16 @@ class ServerHealthMail extends Maintenance {
 			return null;
 		}
 
+		$statusAndBytes = preg_split( '/\s+/', trim( $parts[2] ) );
+
 		return [
 			'ip' => $matches[1],
 			'time' => $time,
+			'method' => $requestParts[0],
 			'url' => $requestParts[1],
+			'status' => $statusAndBytes[0] ?? '?',
+			'bytes' => $statusAndBytes[1] ?? '?',
+			'referrer' => $parts[3] ?? '',
 			'ua' => $parts[5] ?? '',
 		];
 	}
@@ -381,7 +434,7 @@ class ServerHealthMail extends Maintenance {
 			$action = strtolower( is_array( $value ) ? (string)reset( $value ) : (string)$value );
 		}
 
-		$isSpecial = $this->isSpecialPath( $path );
+		$isSpecial = $this->isSpecialPath( $path ) || $this->isSpecialTitleArgument( $args );
 
 		$pageLike = (
 			str_starts_with( $path, '/wiki/' )
@@ -454,6 +507,102 @@ class ServerHealthMail extends Maintenance {
 		return false;
 	}
 
+	private function isSpecialTitleArgument( array $args ): bool {
+		if ( !isset( $args['title'] ) ) {
+			return false;
+		}
+
+		$title = $args['title'];
+		$title = strtolower( is_array( $title ) ? (string)reset( $title ) : (string)$title );
+
+		foreach ( [ 'special:', 'spécial:', 'especial:', 'speciale:', 'spezial:' ] as $prefix ) {
+			if ( str_starts_with( $title, $prefix ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private function sanitizeUrl( string $url ): string {
+		if ( $url === '' || $url === '-' ) {
+			return $url;
+		}
+
+		$parts = parse_url( $url );
+
+		if ( $parts === false || !isset( $parts['query'] ) ) {
+			return $url;
+		}
+
+		$sensitiveNames = [
+			'token',
+			'accesstoken',
+			'access_token',
+			'auth',
+			'authorization',
+			'password',
+			'pass',
+			'wppassword',
+			'csrf',
+			'csrftoken',
+			'session',
+			'sessionid',
+			'secret',
+			'key',
+			'apikey',
+			'api_key',
+		];
+
+		$queryParts = explode( '&', $parts['query'] );
+		$sanitizedParts = [];
+
+		foreach ( $queryParts as $queryPart ) {
+			$pair = explode( '=', $queryPart, 2 );
+			$name = strtolower( rawurldecode( $pair[0] ) );
+
+			if ( in_array( $name, $sensitiveNames, true ) ) {
+				$sanitizedParts[] = $pair[0] . '=[REDACTED]';
+				continue;
+			}
+
+			$sanitizedParts[] = $queryPart;
+		}
+
+		$sanitizedQuery = implode( '&', $sanitizedParts );
+		$beforeQuery = strstr( $url, '?', true );
+
+		if ( $beforeQuery === false ) {
+			return $url;
+		}
+
+		return $beforeQuery . '?' . $sanitizedQuery;
+	}
+
+	private function formatLogLine(
+		array $parsed,
+		string $safeUrl,
+		string $safeReferrer
+	): string {
+		$time = $parsed['time']
+			->setTimezone( new DateTimeZone( 'Europe/Paris' ) )
+			->format( 'Y-m-d H:i:s T' );
+
+		$line = $time;
+		$line .= ' | IP=' . $parsed['ip'];
+		$line .= ' | ' . $parsed['method'] . ' ' . $safeUrl;
+		$line .= ' | HTTP=' . $parsed['status'];
+		$line .= ' | bytes=' . $parsed['bytes'];
+
+		if ( $safeReferrer !== '' && $safeReferrer !== '-' ) {
+			$line .= ' | ref=' . $safeReferrer;
+		}
+
+		$line .= ' | UA=' . ( $parsed['ua'] !== '' ? $parsed['ua'] : '(vide)' );
+
+		return $line;
+	}
+
 	private function detectCrawlerIssues( array $logs ): array {
 		$issues = [];
 
@@ -470,6 +619,11 @@ class ServerHealthMail extends Maintenance {
 					'wiki' => $wiki,
 					'requests' => $data['suspiciousRequests'],
 					'ips' => $wikiSuspiciousIps,
+					'logLines' => array_slice(
+						$data['recentSuspiciousLines'],
+						0,
+						self::MAX_MAIL_LINES_PER_WIKI
+					),
 				];
 			}
 
@@ -500,6 +654,11 @@ class ServerHealthMail extends Maintenance {
 					'suspicious' => $stats['suspicious'],
 					'ips' => $ipCount,
 					'examples' => $stats['examples'],
+					'logLines' => array_slice(
+						$stats['lines'],
+						0,
+						self::MAX_MAIL_LINES_PER_WIKI
+					),
 				];
 			}
 		}
@@ -613,17 +772,38 @@ class ServerHealthMail extends Maintenance {
 			}
 
 			if ( !empty( $issue['examples'] ) ) {
-				$body .= "\tExemples :\n";
+				$body .= "\tExemples d’URL :\n";
 
 				foreach ( $issue['examples'] as $example ) {
 					$body .= "\t\t$example\n";
 				}
 			}
 
+			if ( !empty( $issue['logLines'] ) ) {
+				$body .= "\tLignes de requêtes associées :\n";
+
+				foreach ( $issue['logLines'] as $logLine ) {
+					$body .= "\t\t$logLine\n";
+				}
+			}
+
 			$body .= "\n";
 		}
 
-		$body .= "Trafic récent par wiki\n";
+		$body .= $this->buildTrafficSummary( $logs );
+		$body .= $this->buildWikiDiagnostics( $affectedWikis, $logs );
+
+		$body .= "\nBloc à transmettre pour analyse\n";
+		$body .= "===============================\n\n";
+		$body .= "Le bloc « Diagnostic détaillé » ci-dessus contient les informations ";
+		$body .= "nécessaires pour analyser le crawler et adapter les règles Cloudflare ";
+		$body .= "sans devoir se reconnecter au serveur.\n";
+
+		return $body;
+	}
+
+	private function buildTrafficSummary( array $logs ): string {
+		$body = "Trafic récent par wiki\n";
 		$body .= "----------------------\n\n";
 
 		$traffic = [];
@@ -635,8 +815,161 @@ class ServerHealthMail extends Maintenance {
 		arsort( $traffic, SORT_NUMERIC );
 
 		foreach ( $traffic as $wiki => $count ) {
-			$body .= "$wiki : $count requêtes\n";
+			$data = $logs[$wiki];
+			$body .= "$wiki : $count requêtes";
+			$body .= " | pages={$data['pageRequests']}";
+			$body .= " | dynamiques={$data['dynamicRequests']}";
+			$body .= " | très suspectes={$data['suspiciousRequests']}\n";
 		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
+	private function buildWikiDiagnostics( array $affectedWikis, array $logs ): string {
+		if ( !$affectedWikis ) {
+			return '';
+		}
+
+		$body = "Diagnostic détaillé\n";
+		$body .= "===================\n\n";
+
+		foreach ( $affectedWikis as $wiki ) {
+			if ( !isset( $logs[$wiki] ) ) {
+				continue;
+			}
+
+			$data = $logs[$wiki];
+
+			$body .= "### $wiki ###\n\n";
+			$body .= "Requêtes totales : {$data['totalRequests']}\n";
+			$body .= "Requêtes de pages : {$data['pageRequests']}\n";
+			$body .= "Requêtes dynamiques : {$data['dynamicRequests']}\n";
+			$body .= "Requêtes très suspectes : {$data['suspiciousRequests']}\n";
+			$body .= 'IP distinctes sur requêtes très suspectes : ';
+			$body .= count( $data['suspiciousIps'] ) . "\n\n";
+
+			$body .= $this->buildTopUserAgents( $data );
+			$body .= $this->buildTopDynamicUrls( $data );
+			$body .= $this->buildRelevantLogLines( $data );
+		}
+
+		return $body;
+	}
+
+	private function buildTopUserAgents( array $data ): string {
+		$uas = $data['ua'];
+
+		uasort( $uas, static function ( array $a, array $b ): int {
+			if ( $a['suspicious'] !== $b['suspicious'] ) {
+				return $b['suspicious'] <=> $a['suspicious'];
+			}
+
+			if ( $a['dynamic'] !== $b['dynamic'] ) {
+				return $b['dynamic'] <=> $a['dynamic'];
+			}
+
+			return $b['requests'] <=> $a['requests'];
+		} );
+
+		$body = "User-Agent les plus pertinents\n";
+		$body .= "------------------------------\n\n";
+
+		$shown = 0;
+
+		foreach ( $uas as $ua => $stats ) {
+			if ( $stats['dynamic'] === 0 && $stats['suspicious'] === 0 ) {
+				continue;
+			}
+
+			$body .= 'UA : ' . $ua . "\n";
+			$body .= "\tRequêtes : {$stats['requests']}\n";
+			$body .= "\tDynamiques : {$stats['dynamic']}\n";
+			$body .= "\tTrès suspectes : {$stats['suspicious']}\n";
+			$body .= "\tIP différentes : " . count( $stats['ips'] ) . "\n\n";
+
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_UAS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucun User-Agent dynamique pertinent.\n\n";
+		}
+
+		return $body;
+	}
+
+	private function buildTopDynamicUrls( array $data ): string {
+		$urls = $data['dynamicUrls'];
+
+		uasort( $urls, static function ( array $a, array $b ): int {
+			if ( $a['count'] !== $b['count'] ) {
+				return $b['count'] <=> $a['count'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$body = "URL dynamiques les plus demandées\n";
+		$body .= "---------------------------------\n\n";
+
+		$shown = 0;
+
+		foreach ( $urls as $url => $stats ) {
+			$body .= $stats['count'] . ' requête(s)';
+			$body .= ' | ' . count( $stats['ips'] ) . ' IP';
+			$body .= ' | ' . $url . "\n";
+
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_URLS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucune URL dynamique dans la fenêtre analysée.\n";
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
+	private function buildRelevantLogLines( array $data ): string {
+		$lines = $data['recentSuspiciousLines'];
+
+		if ( count( $lines ) < self::MAX_MAIL_LINES_PER_WIKI ) {
+			foreach ( $data['recentDynamicLines'] as $line ) {
+				if ( in_array( $line, $lines, true ) ) {
+					continue;
+				}
+
+				$lines[] = $line;
+
+				if ( count( $lines ) >= self::MAX_MAIL_LINES_PER_WIKI ) {
+					break;
+				}
+			}
+		}
+
+		$body = "Requêtes pertinentes récentes\n";
+		$body .= "-----------------------------\n\n";
+
+		if ( !$lines ) {
+			$body .= "Aucune requête dynamique récente disponible.\n\n";
+			return $body;
+		}
+
+		foreach ( $lines as $line ) {
+			$body .= $line . "\n";
+		}
+
+		$body .= "\n";
 
 		return $body;
 	}
@@ -724,16 +1057,29 @@ class ServerHealthMail extends Maintenance {
 		}
 	}
 
-	private function sendTestMail( string $configWiki ): void {
-		$subject = "[Test alerte][$configWiki] Surveillance serveur Wikidébats";
+	private function sendTestMail(
+		string $configWiki,
+		array $server,
+		array $logs,
+		int $windowMinutes
+	): void {
+		$diagnosticWikis = $this->getBusiestWikis( $logs, 3 );
+		$wikiLabel = $diagnosticWikis ? implode( ', ', $diagnosticWikis ) : $configWiki;
+
+		$subject = "[Test alerte][$wikiLabel] Diagnostic crawler Wikidébats";
 		$body = "Test du système d’alerte serveur Wikidébats\n";
 		$body .= "==========================================\n\n";
 		$body .= "Wiki de configuration MediaWiki utilisé pour l’envoi : $configWiki\n";
-		$body .= "Destinataire : " . self::RECIPIENT . "\n\n";
-		$body .= "Si vous recevez ce message, l’envoi via UserMailer fonctionne.\n";
+		$body .= "Destinataire : " . self::RECIPIENT . "\n";
+		$body .= "Fenêtre d’analyse : $windowMinutes minutes\n\n";
+		$body .= "Apache : {$server['apache']} processus\n";
+		$body .= "Connexions HTTPS établies : {$server['https']}\n";
+		$body .= "PHP-FPM webmaster_php : {$server['phpFpm']} workers\n\n";
+		$body .= $this->buildTrafficSummary( $logs );
+		$body .= $this->buildWikiDiagnostics( $diagnosticWikis, $logs );
 
 		$this->sendMail( $subject, $body );
-		$this->output( "Mail de test envoyé à " . self::RECIPIENT . "\n" );
+		$this->output( "Mail de test diagnostique envoyé à " . self::RECIPIENT . "\n" );
 	}
 
 	private function sendMail( string $subject, string $body ): void {
