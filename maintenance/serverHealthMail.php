@@ -43,6 +43,16 @@ class ServerHealthMail extends Maintenance {
 
 	private const WIKI_SUSPICIOUS_REQUEST_THRESHOLD = 25;
 	private const WIKI_SUSPICIOUS_IP_THRESHOLD = 20;
+	private const WIKI_DYNAMIC_REQUEST_THRESHOLD = 300;
+	private const WIKI_DYNAMIC_IP_THRESHOLD = 200;
+
+	private const API_POST_BURST_REQUEST_THRESHOLD = 20;
+	private const API_POST_BURST_IP_THRESHOLD = 15;
+
+	private const INTERNAL_BOT_UA_PREFIX = 'ChatGPT/wikidebia_update';
+	private const INTERNAL_BOT_IPS = [
+		'2a01:4f9:6b:29e3::2',
+	];
 
 	private const MAX_RECENT_DYNAMIC_LINES = 100;
 	private const MAX_RECENT_SUSPICIOUS_LINES = 100;
@@ -50,6 +60,10 @@ class ServerHealthMail extends Maintenance {
 	private const MAX_MAIL_LINES_PER_WIKI = 40;
 	private const MAX_TOP_UAS = 10;
 	private const MAX_TOP_URLS = 15;
+	private const MAX_TOP_ALL_UAS = 10;
+	private const MAX_TOP_PATHS = 15;
+	private const MAX_TOP_IPS = 10;
+	private const MAX_API_POST_UAS = 10;
 
 	private const STATE_FILE = '/home/users/webmaster/.cache/wikidebates-server-health.json';
 
@@ -242,10 +256,24 @@ class ServerHealthMail extends Maintenance {
 
 		foreach ( $this->wikis as $wiki => $logPath ) {
 			$result[$wiki] = [
+				'rawTotalRequests' => 0,
+				'internalRequests' => 0,
+				'internalIps' => [],
 				'totalRequests' => 0,
 				'pageRequests' => 0,
 				'dynamicRequests' => 0,
+				'dynamicIps' => [],
 				'suspiciousRequests' => 0,
+				'allIps' => [],
+				'ipRequestCounts' => [],
+				'methods' => [],
+				'statuses' => [],
+				'allUa' => [],
+				'paths' => [],
+				'apiPostRequests' => 0,
+				'apiPostIps' => [],
+				'apiPostUa' => [],
+				'recentApiPostLines' => [],
 				'suspiciousIps' => [],
 				'dynamicUrls' => [],
 				'recentDynamicLines' => [],
@@ -275,7 +303,79 @@ class ServerHealthMail extends Maintenance {
 					break;
 				}
 
+				$result[$wiki]['rawTotalRequests']++;
+
+				if ( $this->isIgnoredInternalBot( $parsed['ua'], $parsed['ip'] ) ) {
+					$result[$wiki]['internalRequests']++;
+					$result[$wiki]['internalIps'][$parsed['ip']] = true;
+					continue;
+				}
+
 				$result[$wiki]['totalRequests']++;
+				$result[$wiki]['allIps'][$parsed['ip']] = true;
+				$result[$wiki]['ipRequestCounts'][$parsed['ip']] = ( $result[$wiki]['ipRequestCounts'][$parsed['ip']] ?? 0 ) + 1;
+
+				$method = strtoupper( (string)$parsed['method'] );
+				$status = (string)$parsed['status'];
+				$ua = $this->normalizeUserAgent( $parsed['ua'] );
+				$safeUrl = $this->sanitizeUrl( $parsed['url'] );
+				$safeReferrer = $this->sanitizeUrl( $parsed['referrer'] );
+				$formattedLine = $this->formatLogLine(
+					$parsed,
+					$safeUrl,
+					$safeReferrer
+				);
+
+				$result[$wiki]['methods'][$method] = ( $result[$wiki]['methods'][$method] ?? 0 ) + 1;
+				$result[$wiki]['statuses'][$status] = ( $result[$wiki]['statuses'][$status] ?? 0 ) + 1;
+
+				if ( !isset( $result[$wiki]['allUa'][$ua] ) ) {
+					$result[$wiki]['allUa'][$ua] = [
+						'requests' => 0,
+						'ips' => [],
+					];
+				}
+
+				$result[$wiki]['allUa'][$ua]['requests']++;
+				$result[$wiki]['allUa'][$ua]['ips'][$parsed['ip']] = true;
+
+				$urlParts = parse_url( $parsed['url'] );
+				$path = is_array( $urlParts ) ? (string)( $urlParts['path'] ?? '' ) : '';
+				$path = $path !== '' ? $path : '(chemin vide)';
+
+				if ( !isset( $result[$wiki]['paths'][$path] ) ) {
+					$result[$wiki]['paths'][$path] = [
+						'count' => 0,
+						'ips' => [],
+					];
+				}
+
+				$result[$wiki]['paths'][$path]['count']++;
+				$result[$wiki]['paths'][$path]['ips'][$parsed['ip']] = true;
+
+				if ( $method === 'POST' && strtolower( $path ) === '/w/api.php' ) {
+					$result[$wiki]['apiPostRequests']++;
+					$result[$wiki]['apiPostIps'][$parsed['ip']] = true;
+
+					if ( !isset( $result[$wiki]['apiPostUa'][$ua] ) ) {
+						$result[$wiki]['apiPostUa'][$ua] = [
+							'requests' => 0,
+							'ips' => [],
+							'lines' => [],
+						];
+					}
+
+					$result[$wiki]['apiPostUa'][$ua]['requests']++;
+					$result[$wiki]['apiPostUa'][$ua]['ips'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['apiPostUa'][$ua]['lines'] ) < self::MAX_UA_LINES ) {
+						$result[$wiki]['apiPostUa'][$ua]['lines'][] = $formattedLine;
+					}
+
+					if ( count( $result[$wiki]['recentApiPostLines'] ) < self::MAX_RECENT_DYNAMIC_LINES ) {
+						$result[$wiki]['recentApiPostLines'][] = $formattedLine;
+					}
+				}
 
 				$class = $this->classifyRequest( $parsed['url'] );
 
@@ -285,16 +385,9 @@ class ServerHealthMail extends Maintenance {
 
 				$result[$wiki]['pageRequests']++;
 
-				$safeUrl = $this->sanitizeUrl( $parsed['url'] );
-				$safeReferrer = $this->sanitizeUrl( $parsed['referrer'] );
-				$formattedLine = $this->formatLogLine(
-					$parsed,
-					$safeUrl,
-					$safeReferrer
-				);
-
 				if ( $class['dynamic'] ) {
 					$result[$wiki]['dynamicRequests']++;
+					$result[$wiki]['dynamicIps'][$parsed['ip']] = true;
 
 					if ( !isset( $result[$wiki]['dynamicUrls'][$safeUrl] ) ) {
 						$result[$wiki]['dynamicUrls'][$safeUrl] = [
@@ -319,8 +412,6 @@ class ServerHealthMail extends Maintenance {
 						$result[$wiki]['recentSuspiciousLines'][] = $formattedLine;
 					}
 				}
-
-				$ua = $this->normalizeUserAgent( $parsed['ua'] );
 
 				if ( !isset( $result[$wiki]['ua'][$ua] ) ) {
 					$result[$wiki]['ua'][$ua] = [
@@ -403,6 +494,14 @@ class ServerHealthMail extends Maintenance {
 			'referrer' => $parts[3] ?? '',
 			'ua' => $parts[5] ?? '',
 		];
+	}
+
+	private function isIgnoredInternalBot( string $ua, string $ip ): bool {
+		if ( !str_starts_with( $ua, self::INTERNAL_BOT_UA_PREFIX ) ) {
+			return false;
+		}
+
+		return in_array( $ip, self::INTERNAL_BOT_IPS, true );
 	}
 
 	private function normalizeUserAgent( string $ua ): string {
@@ -622,6 +721,27 @@ class ServerHealthMail extends Maintenance {
 
 		foreach ( $logs as $wiki => $data ) {
 			$wikiSuspiciousIps = count( $data['suspiciousIps'] );
+			$wikiDynamicIps = count( $data['dynamicIps'] );
+			$isWikiDynamicDistributed = (
+				$data['dynamicRequests'] >= self::WIKI_DYNAMIC_REQUEST_THRESHOLD
+				&& $wikiDynamicIps >= self::WIKI_DYNAMIC_IP_THRESHOLD
+			);
+
+			if ( $isWikiDynamicDistributed ) {
+				$issues[] = [
+					'type' => 'crawler-wiki-dynamic-distributed',
+					'label' => 'Crawler distribué massif avec User-Agent tournants',
+					'wiki' => $wiki,
+					'requests' => $data['totalRequests'],
+					'dynamic' => $data['dynamicRequests'],
+					'ips' => $wikiDynamicIps,
+					'logLines' => array_slice(
+						$data['recentDynamicLines'],
+						0,
+						self::MAX_MAIL_LINES_PER_WIKI
+					),
+				];
+			}
 
 			if (
 				$data['suspiciousRequests'] >= self::WIKI_SUSPICIOUS_REQUEST_THRESHOLD
@@ -639,6 +759,33 @@ class ServerHealthMail extends Maintenance {
 						self::MAX_MAIL_LINES_PER_WIKI
 					),
 				];
+			}
+
+			foreach ( $data['apiPostUa'] as $ua => $stats ) {
+				$ipCount = count( $stats['ips'] );
+
+				if (
+					$stats['requests'] >= self::API_POST_BURST_REQUEST_THRESHOLD
+					&& $ipCount >= self::API_POST_BURST_IP_THRESHOLD
+				) {
+					$issues[] = [
+						'type' => 'crawler-api-post-distributed',
+						'label' => 'Burst distribué de POST vers /w/api.php',
+						'wiki' => $wiki,
+						'ua' => $ua,
+						'requests' => $stats['requests'],
+						'ips' => $ipCount,
+						'logLines' => array_slice(
+							$stats['lines'],
+							0,
+							self::MAX_MAIL_LINES_PER_WIKI
+						),
+					];
+				}
+			}
+
+			if ( $isWikiDynamicDistributed ) {
+				continue;
 			}
 
 			foreach ( $data['ua'] as $ua => $stats ) {
@@ -684,8 +831,8 @@ class ServerHealthMail extends Maintenance {
 		$counts = [];
 
 		foreach ( $logs as $wiki => $data ) {
-			if ( $data['totalRequests'] > 0 ) {
-				$counts[$wiki] = $data['totalRequests'];
+			if ( $data['rawTotalRequests'] > 0 ) {
+				$counts[$wiki] = $data['rawTotalRequests'];
 			}
 		}
 
@@ -823,16 +970,21 @@ class ServerHealthMail extends Maintenance {
 		$traffic = [];
 
 		foreach ( $logs as $wiki => $data ) {
-			$traffic[$wiki] = $data['totalRequests'];
+			$traffic[$wiki] = $data['rawTotalRequests'];
 		}
 
 		arsort( $traffic, SORT_NUMERIC );
 
-		foreach ( $traffic as $wiki => $count ) {
+		foreach ( $traffic as $wiki => $rawCount ) {
 			$data = $logs[$wiki];
-			$body .= "$wiki : $count requêtes";
+			$body .= "$wiki : {$data['totalRequests']} requêtes analysées";
+			$body .= " | brutes=$rawCount";
+			$body .= " | internes ignorées={$data['internalRequests']}";
+			$body .= ' | IP=' . count( $data['allIps'] );
 			$body .= " | pages={$data['pageRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
+			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
+			$body .= " | POST API={$data['apiPostRequests']}";
 			$body .= " | très suspectes={$data['suspiciousRequests']}\n";
 		}
 
@@ -857,17 +1009,224 @@ class ServerHealthMail extends Maintenance {
 			$data = $logs[$wiki];
 
 			$body .= "### $wiki ###\n\n";
-			$body .= "Requêtes totales : {$data['totalRequests']}\n";
+			$body .= "Requêtes brutes : {$data['rawTotalRequests']}\n";
+			$body .= "Requêtes internes ignorées : {$data['internalRequests']}\n";
+			$body .= "Requêtes analysées : {$data['totalRequests']}\n";
+			$body .= 'IP distinctes sur le trafic analysé : ' . count( $data['allIps'] ) . "\n";
 			$body .= "Requêtes de pages : {$data['pageRequests']}\n";
 			$body .= "Requêtes dynamiques : {$data['dynamicRequests']}\n";
+			$body .= 'IP distinctes sur requêtes dynamiques : ' . count( $data['dynamicIps'] ) . "\n";
+			$body .= "POST vers /w/api.php : {$data['apiPostRequests']}\n";
 			$body .= "Requêtes très suspectes : {$data['suspiciousRequests']}\n";
 			$body .= 'IP distinctes sur requêtes très suspectes : ';
 			$body .= count( $data['suspiciousIps'] ) . "\n\n";
 
+			$body .= $this->buildAllTrafficDiagnostics( $data );
 			$body .= $this->buildTopUserAgents( $data );
 			$body .= $this->buildTopDynamicUrls( $data );
 			$body .= $this->buildRelevantLogLines( $data );
 		}
+
+		return $body;
+	}
+
+	private function buildAllTrafficDiagnostics( array $data ): string {
+		$body = "Méthodes HTTP\n";
+		$body .= "-------------\n\n";
+
+		$methods = $data['methods'];
+		arsort( $methods, SORT_NUMERIC );
+
+		if ( !$methods ) {
+			$body .= "Aucune méthode HTTP disponible.\n\n";
+		} else {
+			foreach ( $methods as $method => $count ) {
+				$body .= "$method : $count\n";
+			}
+
+			$body .= "\n";
+		}
+
+		$body .= "Codes HTTP\n";
+		$body .= "----------\n\n";
+
+		$statuses = $data['statuses'];
+		arsort( $statuses, SORT_NUMERIC );
+
+		if ( !$statuses ) {
+			$body .= "Aucun code HTTP disponible.\n\n";
+		} else {
+			foreach ( $statuses as $status => $count ) {
+				$body .= "$status : $count\n";
+			}
+
+			$body .= "\n";
+		}
+
+		$body .= $this->buildTopAllUserAgents( $data );
+		$body .= $this->buildTopPaths( $data );
+		$body .= $this->buildTopIps( $data );
+		$body .= $this->buildApiPostDiagnostics( $data );
+
+		return $body;
+	}
+
+	private function buildTopAllUserAgents( array $data ): string {
+		$uas = $data['allUa'];
+
+		uasort( $uas, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$body = "User-Agent les plus actifs — tout le trafic\n";
+		$body .= "---------------------------------------------\n\n";
+		$shown = 0;
+
+		foreach ( $uas as $ua => $stats ) {
+			$body .= 'UA : ' . $ua . "\n";
+			$body .= "	Requêtes : {$stats['requests']}\n";
+			$body .= "	IP différentes : " . count( $stats['ips'] ) . "\n\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_ALL_UAS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucun User-Agent disponible.\n\n";
+		}
+
+		return $body;
+	}
+
+	private function buildTopPaths( array $data ): string {
+		$paths = $data['paths'];
+
+		uasort( $paths, static function ( array $a, array $b ): int {
+			if ( $a['count'] !== $b['count'] ) {
+				return $b['count'] <=> $a['count'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$body = "Chemins les plus demandés — tout le trafic\n";
+		$body .= "-------------------------------------------\n\n";
+		$shown = 0;
+
+		foreach ( $paths as $path => $stats ) {
+			$body .= $stats['count'] . ' requête(s)';
+			$body .= ' | ' . count( $stats['ips'] ) . ' IP';
+			$body .= ' | ' . $path . "\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_PATHS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucun chemin disponible.\n";
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
+	private function buildTopIps( array $data ): string {
+		$ipCounts = [];
+
+		foreach ( $data['allUa'] as $stats ) {
+			foreach ( $stats['ips'] as $ip => $_ ) {
+				$ipCounts[$ip] = 0;
+			}
+		}
+
+		foreach ( $data['paths'] as $stats ) {
+			foreach ( $stats['ips'] as $ip => $_ ) {
+				if ( !isset( $ipCounts[$ip] ) ) {
+					$ipCounts[$ip] = 0;
+				}
+			}
+		}
+
+		foreach ( $data['ipRequestCounts'] ?? [] as $ip => $count ) {
+			$ipCounts[$ip] = $count;
+		}
+
+		arsort( $ipCounts, SORT_NUMERIC );
+
+		$body = "IP les plus actives — tout le trafic\n";
+		$body .= "------------------------------------\n\n";
+		$shown = 0;
+
+		foreach ( $ipCounts as $ip => $count ) {
+			$body .= "$count requête(s) | $ip\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_IPS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucune IP disponible.\n";
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
+	private function buildApiPostDiagnostics( array $data ): string {
+		$body = "POST vers /w/api.php\n";
+		$body .= "--------------------\n\n";
+		$body .= "Total : {$data['apiPostRequests']}\n";
+		$body .= 'IP différentes : ' . count( $data['apiPostIps'] ) . "\n\n";
+
+		if ( $data['apiPostRequests'] === 0 ) {
+			$body .= "Aucun POST vers /w/api.php dans la fenêtre analysée.\n\n";
+			return $body;
+		}
+
+		$uas = $data['apiPostUa'];
+		uasort( $uas, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$body .= "User-Agent des POST API\n";
+		$body .= "-----------------------\n\n";
+		$shown = 0;
+
+		foreach ( $uas as $ua => $stats ) {
+			$body .= 'UA : ' . $ua . "\n";
+			$body .= "	Requêtes : {$stats['requests']}\n";
+			$body .= "	IP différentes : " . count( $stats['ips'] ) . "\n\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_API_POST_UAS ) {
+				break;
+			}
+		}
+
+		$body .= "Requêtes POST API récentes\n";
+		$body .= "---------------------------\n\n";
+
+		foreach ( array_slice( $data['recentApiPostLines'], 0, self::MAX_MAIL_LINES_PER_WIKI ) as $line ) {
+			$body .= $line . "\n";
+		}
+
+		$body .= "\n";
 
 		return $body;
 	}
@@ -1020,13 +1379,18 @@ class ServerHealthMail extends Maintenance {
 		$traffic = [];
 
 		foreach ( $logs as $wiki => $data ) {
-			$traffic[$wiki] = $data['totalRequests'];
+			$traffic[$wiki] = $data['rawTotalRequests'];
 		}
 
 		arsort( $traffic, SORT_NUMERIC );
 
-		foreach ( $traffic as $wiki => $count ) {
-			$body .= "$wiki : $count requêtes\n";
+		foreach ( $traffic as $wiki => $rawCount ) {
+			$data = $logs[$wiki];
+			$body .= "$wiki : {$data['totalRequests']} analysées";
+			$body .= " | brutes=$rawCount";
+			$body .= " | internes ignorées={$data['internalRequests']}";
+			$body .= " | dynamiques={$data['dynamicRequests']}";
+			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] ) . "\n";
 		}
 
 		return $body;
