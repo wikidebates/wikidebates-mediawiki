@@ -49,6 +49,10 @@ class ServerHealthMail extends Maintenance {
 	private const API_POST_BURST_REQUEST_THRESHOLD = 20;
 	private const API_POST_BURST_IP_THRESHOLD = 15;
 
+	private const ORDINARY_PAGE_REQUEST_THRESHOLD = 80;
+	private const ORDINARY_PAGE_IP_THRESHOLD = 70;
+	private const ORDINARY_PAGE_IP_RATIO_THRESHOLD = 0.85;
+
 	private const INTERNAL_BOT_UA_PREFIX = 'ChatGPT/wikidebia_update';
 	private const INTERNAL_BOT_IPS = [
 		'2a01:4f9:6b:29e3::2',
@@ -64,6 +68,11 @@ class ServerHealthMail extends Maintenance {
 	private const MAX_TOP_PATHS = 15;
 	private const MAX_TOP_IPS = 10;
 	private const MAX_API_POST_UAS = 10;
+	private const MAX_RECENT_ORDINARY_LINES = 100;
+	private const MAX_RECENT_FAST_REJECT_LINES = 50;
+	private const MAX_FAST_REJECT_URLS = 10;
+	private const MAX_SNAPSHOT_IPS = 15;
+	private const MAX_SNAPSHOT_WORKERS = 8;
 
 	private const STATE_FILE = '/home/users/webmaster/.cache/wikidebates-server-health.json';
 
@@ -109,10 +118,22 @@ class ServerHealthMail extends Maintenance {
 		$since = $now->sub( new DateInterval( 'PT' . $windowMinutes . 'M' ) );
 
 		$server = $this->collectServerMetrics();
+		$serverThresholdExceeded = $this->isServerThresholdExceeded( $server );
+		$serverSnapshot = $serverThresholdExceeded ? $this->collectServerSnapshot() : [];
 		$logs = $this->analyseLogs( $since );
 
 		if ( $this->hasOption( 'test-mail' ) ) {
-			$this->sendTestMail( $configWiki, $server, $logs, $windowMinutes );
+			if ( !$serverSnapshot ) {
+				$serverSnapshot = $this->collectServerSnapshot();
+			}
+
+			$this->sendTestMail(
+				$configWiki,
+				$server,
+				$serverSnapshot,
+				$logs,
+				$windowMinutes
+			);
 			return;
 		}
 
@@ -153,11 +174,7 @@ class ServerHealthMail extends Maintenance {
 			$affectedWikis[$issue['wiki']] = true;
 		}
 
-		if (
-			$server['apache'] >= self::APACHE_ALERT_THRESHOLD
-			|| $server['https'] >= self::HTTPS_ALERT_THRESHOLD
-			|| $server['phpFpm'] >= self::PHP_FPM_ALERT_THRESHOLD
-		) {
+		if ( $serverThresholdExceeded ) {
 			foreach ( $this->getBusiestWikis( $logs, 3 ) as $wiki ) {
 				$affectedWikis[$wiki] = true;
 			}
@@ -177,6 +194,7 @@ class ServerHealthMail extends Maintenance {
 					$affectedWikiCodes,
 					$issues,
 					$server,
+					$serverSnapshot,
 					$logs,
 					$windowMinutes
 				);
@@ -241,6 +259,233 @@ class ServerHealthMail extends Maintenance {
 		];
 	}
 
+	private function isServerThresholdExceeded( array $server ): bool {
+		return (
+			$server['apache'] >= self::APACHE_ALERT_THRESHOLD
+			|| $server['https'] >= self::HTTPS_ALERT_THRESHOLD
+			|| $server['phpFpm'] >= self::PHP_FPM_ALERT_THRESHOLD
+		);
+	}
+
+	private function collectServerSnapshot(): array {
+		$httpsEstablished = $this->commandOutput(
+			"ss -Htan state established '( sport = :443 )' 2>/dev/null"
+		);
+		$httpsAll = $this->commandOutput(
+			"ss -Htan state all '( sport = :443 )' 2>/dev/null"
+		);
+		$apachePs = $this->commandOutput( "ps -C apache2 -o stat= 2>/dev/null" );
+		$phpPs = $this->commandOutput(
+			"ps -eo pid=,stat=,etime=,pcpu=,pmem=,rss=,args= --sort=-pcpu 2>/dev/null"
+		);
+
+		$apacheStatusRaw = $this->fetchLocalStatus( '/server-status?auto' );
+		$phpFpmStatusRaw = $this->fetchLocalStatus( '/fpm-status?json' );
+
+		return [
+			'httpsTopIps' => $this->countSocketPeerIps( $httpsEstablished ),
+			'httpsStates' => $this->countSocketStates( $httpsAll ),
+			'apacheProcessStates' => $this->countProcessStates( $apachePs ),
+			'apacheStatus' => $this->parseApacheStatus( $apacheStatusRaw ),
+			'phpFpmProcessStates' => $this->countPhpFpmProcessStates( $phpPs ),
+			'phpFpmTopWorkers' => $this->extractPhpFpmWorkers( $phpPs ),
+			'phpFpmStatus' => $this->parsePhpFpmStatus( $phpFpmStatusRaw ),
+		];
+	}
+
+	private function commandOutput( string $command ): string {
+		$output = shell_exec( $command );
+
+		return $output === null ? '' : trim( $output );
+	}
+
+	private function fetchLocalStatus( string $path ): string {
+		$command = 'curl -ksS -L --max-redirs 2 --connect-timeout 1 --max-time 2 '
+			. '--resolve fr.wikidebates.org:443:127.0.0.1 '
+			. escapeshellarg( 'https://fr.wikidebates.org' . $path )
+			. ' 2>/dev/null';
+
+		return $this->commandOutput( $command );
+	}
+
+	private function countSocketPeerIps( string $output ): array {
+		$counts = [];
+
+		foreach ( preg_split( '/\R/', $output, -1, PREG_SPLIT_NO_EMPTY ) as $line ) {
+			$parts = preg_split( '/\s+/', trim( $line ) );
+
+			if ( !$parts ) {
+				continue;
+			}
+
+			$peer = (string)end( $parts );
+			$ip = $this->socketEndpointToIp( $peer );
+
+			if ( $ip === '' ) {
+				continue;
+			}
+
+			$counts[$ip] = ( $counts[$ip] ?? 0 ) + 1;
+		}
+
+		arsort( $counts, SORT_NUMERIC );
+
+		return $counts;
+	}
+
+	private function socketEndpointToIp( string $endpoint ): string {
+		if ( preg_match( '/^\[([^]]+)](?::\d+|:\*)?$/', $endpoint, $matches ) ) {
+			return $matches[1];
+		}
+
+		if ( preg_match( '/^(.*):(\d+|\*)$/', $endpoint, $matches ) ) {
+			return rtrim( $matches[1], ':' );
+		}
+
+		return $endpoint;
+	}
+
+	private function countSocketStates( string $output ): array {
+		$states = [];
+
+		foreach ( preg_split( '/\R/', $output, -1, PREG_SPLIT_NO_EMPTY ) as $line ) {
+			$parts = preg_split( '/\s+/', trim( $line ) );
+
+			if ( !$parts ) {
+				continue;
+			}
+
+			$first = strtoupper( (string)$parts[0] );
+			$state = preg_match( '/^[A-Z-]+$/', $first ) ? $first : 'ESTAB';
+			$states[$state] = ( $states[$state] ?? 0 ) + 1;
+		}
+
+		arsort( $states, SORT_NUMERIC );
+
+		return $states;
+	}
+
+	private function countProcessStates( string $output ): array {
+		$states = [];
+
+		foreach ( preg_split( '/\R/', $output, -1, PREG_SPLIT_NO_EMPTY ) as $line ) {
+			$state = strtoupper( substr( trim( $line ), 0, 1 ) );
+
+			if ( $state === '' ) {
+				continue;
+			}
+
+			$states[$state] = ( $states[$state] ?? 0 ) + 1;
+		}
+
+		arsort( $states, SORT_NUMERIC );
+
+		return $states;
+	}
+
+	private function countPhpFpmProcessStates( string $output ): array {
+		$states = [];
+
+		foreach ( preg_split( '/\R/', $output, -1, PREG_SPLIT_NO_EMPTY ) as $line ) {
+			if ( !str_contains( $line, 'php-fpm: pool webmaster_php' ) ) {
+				continue;
+			}
+
+			$parts = preg_split( '/\s+/', trim( $line ), 3 );
+
+			if ( count( $parts ) < 2 ) {
+				continue;
+			}
+
+			$state = strtoupper( substr( $parts[1], 0, 1 ) );
+			$states[$state] = ( $states[$state] ?? 0 ) + 1;
+		}
+
+		arsort( $states, SORT_NUMERIC );
+
+		return $states;
+	}
+
+	private function extractPhpFpmWorkers( string $output ): array {
+		$workers = [];
+
+		foreach ( preg_split( '/\R/', $output, -1, PREG_SPLIT_NO_EMPTY ) as $line ) {
+			if ( !str_contains( $line, 'php-fpm: pool webmaster_php' ) ) {
+				continue;
+			}
+
+			$workers[] = trim( preg_replace( '/\s+/', ' ', $line ) );
+
+			if ( count( $workers ) >= self::MAX_SNAPSHOT_WORKERS ) {
+				break;
+			}
+		}
+
+		return $workers;
+	}
+
+	private function parseApacheStatus( string $raw ): array {
+		$result = [];
+
+		foreach ( [ 'BusyWorkers', 'IdleWorkers', 'Scoreboard' ] as $key ) {
+			if ( preg_match( '/^' . preg_quote( $key, '/' ) . ':\s*(.+)$/mi', $raw, $matches ) ) {
+				$result[$key] = trim( $matches[1] );
+			}
+		}
+
+		return $result;
+	}
+
+	private function parsePhpFpmStatus( string $raw ): array {
+		if ( $raw === '' ) {
+			return [];
+		}
+
+		$json = json_decode( $raw, true );
+
+		if ( is_array( $json ) ) {
+			$map = [
+				'idle processes' => 'idleProcesses',
+				'active processes' => 'activeProcesses',
+				'total processes' => 'totalProcesses',
+				'max active processes' => 'maxActiveProcesses',
+				'max children reached' => 'maxChildrenReached',
+				'slow requests' => 'slowRequests',
+				'listen queue' => 'listenQueue',
+				'max listen queue' => 'maxListenQueue',
+			];
+			$result = [];
+
+			foreach ( $map as $source => $target ) {
+				if ( array_key_exists( $source, $json ) ) {
+					$result[$target] = $json[$source];
+				}
+			}
+
+			return $result;
+		}
+
+		$map = [
+			'idle processes' => 'idleProcesses',
+			'active processes' => 'activeProcesses',
+			'total processes' => 'totalProcesses',
+			'max active processes' => 'maxActiveProcesses',
+			'max children reached' => 'maxChildrenReached',
+			'slow requests' => 'slowRequests',
+			'listen queue' => 'listenQueue',
+			'max listen queue' => 'maxListenQueue',
+		];
+		$result = [];
+
+		foreach ( $map as $source => $target ) {
+			if ( preg_match( '/^' . preg_quote( $source, '/' ) . ':\s*(.+)$/mi', $raw, $matches ) ) {
+				$result[$target] = trim( $matches[1] );
+			}
+		}
+
+		return $result;
+	}
+
 	private function commandToInt( string $command ): int {
 		$output = shell_exec( $command );
 
@@ -261,8 +506,15 @@ class ServerHealthMail extends Maintenance {
 				'internalIps' => [],
 				'totalRequests' => 0,
 				'pageRequests' => 0,
+				'ordinaryPageRequests' => 0,
+				'ordinaryPageIps' => [],
+				'recentOrdinaryPageLines' => [],
 				'dynamicRequests' => 0,
 				'dynamicIps' => [],
+				'fastRejectedRequests' => 0,
+				'fastRejectedIps' => [],
+				'fastRejectedUrls' => [],
+				'recentFastRejectedLines' => [],
 				'suspiciousRequests' => 0,
 				'allIps' => [],
 				'ipRequestCounts' => [],
@@ -353,6 +605,27 @@ class ServerHealthMail extends Maintenance {
 				$result[$wiki]['paths'][$path]['count']++;
 				$result[$wiki]['paths'][$path]['ips'][$parsed['ip']] = true;
 
+				$isFastRejected = (string)$parsed['status'] === '418';
+
+				if ( $isFastRejected ) {
+					$result[$wiki]['fastRejectedRequests']++;
+					$result[$wiki]['fastRejectedIps'][$parsed['ip']] = true;
+
+					if ( !isset( $result[$wiki]['fastRejectedUrls'][$safeUrl] ) ) {
+						$result[$wiki]['fastRejectedUrls'][$safeUrl] = [
+							'count' => 0,
+							'ips' => [],
+						];
+					}
+
+					$result[$wiki]['fastRejectedUrls'][$safeUrl]['count']++;
+					$result[$wiki]['fastRejectedUrls'][$safeUrl]['ips'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['recentFastRejectedLines'] ) < self::MAX_RECENT_FAST_REJECT_LINES ) {
+						$result[$wiki]['recentFastRejectedLines'][] = $formattedLine;
+					}
+				}
+
 				if ( $method === 'POST' && strtolower( $path ) === '/w/api.php' ) {
 					$result[$wiki]['apiPostRequests']++;
 					$result[$wiki]['apiPostIps'][$parsed['ip']] = true;
@@ -385,7 +658,16 @@ class ServerHealthMail extends Maintenance {
 
 				$result[$wiki]['pageRequests']++;
 
-				if ( $class['dynamic'] ) {
+				if ( $class['ordinary'] && $method === 'GET' && !$isFastRejected ) {
+					$result[$wiki]['ordinaryPageRequests']++;
+					$result[$wiki]['ordinaryPageIps'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['recentOrdinaryPageLines'] ) < self::MAX_RECENT_ORDINARY_LINES ) {
+						$result[$wiki]['recentOrdinaryPageLines'][] = $formattedLine;
+					}
+				}
+
+				if ( $class['dynamic'] && !$isFastRejected ) {
 					$result[$wiki]['dynamicRequests']++;
 					$result[$wiki]['dynamicIps'][$parsed['ip']] = true;
 
@@ -427,7 +709,7 @@ class ServerHealthMail extends Maintenance {
 				$result[$wiki]['ua'][$ua]['requests']++;
 				$result[$wiki]['ua'][$ua]['ips'][$parsed['ip']] = true;
 
-				if ( $class['dynamic'] ) {
+				if ( $class['dynamic'] && !$isFastRejected ) {
 					$result[$wiki]['ua'][$ua]['dynamic']++;
 				}
 
@@ -436,7 +718,7 @@ class ServerHealthMail extends Maintenance {
 				}
 
 				if (
-					( $class['dynamic'] || $class['suspicious'] )
+					( ( $class['dynamic'] && !$isFastRejected ) || $class['suspicious'] )
 					&& count( $result[$wiki]['ua'][$ua]['lines'] ) < self::MAX_UA_LINES
 				) {
 					$result[$wiki]['ua'][$ua]['lines'][] = $formattedLine;
@@ -524,6 +806,7 @@ class ServerHealthMail extends Maintenance {
 		if ( $parsed === false ) {
 			return [
 				'pageLike' => false,
+				'ordinary' => false,
 				'dynamic' => false,
 				'suspicious' => false,
 			];
@@ -554,6 +837,8 @@ class ServerHealthMail extends Maintenance {
 			|| $path === '/w/index.php'
 			|| $path === '/w/api.php'
 		);
+
+		$ordinary = str_starts_with( $path, '/wiki/' ) && !$isSpecial;
 
 		$dynamic = (
 			$path === '/w/index.php'
@@ -592,6 +877,7 @@ class ServerHealthMail extends Maintenance {
 
 		return [
 			'pageLike' => $pageLike,
+			'ordinary' => $ordinary,
 			'dynamic' => $dynamic,
 			'suspicious' => $suspicious,
 		];
@@ -722,10 +1008,35 @@ class ServerHealthMail extends Maintenance {
 		foreach ( $logs as $wiki => $data ) {
 			$wikiSuspiciousIps = count( $data['suspiciousIps'] );
 			$wikiDynamicIps = count( $data['dynamicIps'] );
+			$ordinaryPageIps = count( $data['ordinaryPageIps'] );
+			$ordinaryPageRatio = $data['ordinaryPageRequests'] > 0
+				? $ordinaryPageIps / $data['ordinaryPageRequests']
+				: 0.0;
+			$isWikiOrdinaryDistributed = (
+				$data['ordinaryPageRequests'] >= self::ORDINARY_PAGE_REQUEST_THRESHOLD
+				&& $ordinaryPageIps >= self::ORDINARY_PAGE_IP_THRESHOLD
+				&& $ordinaryPageRatio >= self::ORDINARY_PAGE_IP_RATIO_THRESHOLD
+			);
 			$isWikiDynamicDistributed = (
 				$data['dynamicRequests'] >= self::WIKI_DYNAMIC_REQUEST_THRESHOLD
 				&& $wikiDynamicIps >= self::WIKI_DYNAMIC_IP_THRESHOLD
 			);
+
+			if ( $isWikiOrdinaryDistributed ) {
+				$issues[] = [
+					'type' => 'crawler-wiki-ordinary-distributed',
+					'label' => 'Crawler distribué de pages ordinaires possible',
+					'wiki' => $wiki,
+					'ordinary' => $data['ordinaryPageRequests'],
+					'ips' => $ordinaryPageIps,
+					'ipRatio' => $ordinaryPageRatio,
+					'logLines' => array_slice(
+						$data['recentOrdinaryPageLines'],
+						0,
+						self::MAX_MAIL_LINES_PER_WIKI
+					),
+				];
+			}
 
 			if ( $isWikiDynamicDistributed ) {
 				$issues[] = [
@@ -874,6 +1185,7 @@ class ServerHealthMail extends Maintenance {
 		array $affectedWikis,
 		array $issues,
 		array $server,
+		array $serverSnapshot,
 		array $logs,
 		int $windowMinutes
 	): string {
@@ -896,6 +1208,10 @@ class ServerHealthMail extends Maintenance {
 		$body .= "PHP-FPM webmaster_php : {$server['phpFpm']} workers";
 		$body .= ' (alerte à partir de ' . self::PHP_FPM_ALERT_THRESHOLD . ")\n\n";
 
+		if ( $serverSnapshot ) {
+			$body .= $this->buildServerSnapshotDiagnostics( $serverSnapshot );
+		}
+
 		$body .= "Anomalies détectées\n";
 		$body .= "-------------------\n\n";
 
@@ -914,6 +1230,14 @@ class ServerHealthMail extends Maintenance {
 
 			if ( isset( $issue['requests'] ) ) {
 				$body .= "\tRequêtes : {$issue['requests']}\n";
+			}
+
+			if ( isset( $issue['ordinary'] ) ) {
+				$body .= "\tPages ordinaires : {$issue['ordinary']}\n";
+			}
+
+			if ( isset( $issue['ipRatio'] ) ) {
+				$body .= "\tRatio IP/page : " . number_format( $issue['ipRatio'], 2, ',', '' ) . "\n";
 			}
 
 			if ( isset( $issue['dynamic'] ) ) {
@@ -963,6 +1287,109 @@ class ServerHealthMail extends Maintenance {
 		return $body;
 	}
 
+	private function buildServerSnapshotDiagnostics( array $snapshot ): string {
+		$body = "Instantané au déclenchement\n";
+		$body .= "---------------------------\n\n";
+
+		$body .= "Connexions HTTPS actuellement ouvertes\n";
+		$body .= "---------------------------------------\n\n";
+
+		if ( !empty( $snapshot['httpsStates'] ) ) {
+			$body .= "États TCP :\n";
+
+			foreach ( $snapshot['httpsStates'] as $state => $count ) {
+				$body .= "	$state : $count\n";
+			}
+		} else {
+			$body .= "États TCP : indisponibles\n";
+		}
+
+		$httpsTopIps = $snapshot['httpsTopIps'] ?? [];
+		$body .= 'IP distinctes avec connexion HTTPS établie : ' . count( $httpsTopIps ) . "\n";
+
+		if ( $httpsTopIps ) {
+			$body .= "IP ayant le plus de connexions établies :\n";
+			$shown = 0;
+
+			foreach ( $httpsTopIps as $ip => $count ) {
+				$body .= "	$count connexion(s) | $ip\n";
+				$shown++;
+
+				if ( $shown >= self::MAX_SNAPSHOT_IPS ) {
+					break;
+				}
+			}
+		}
+
+		$body .= "\nApache\n";
+		$body .= "------\n\n";
+		$apacheStatus = $snapshot['apacheStatus'] ?? [];
+
+		if ( isset( $apacheStatus['BusyWorkers'] ) || isset( $apacheStatus['IdleWorkers'] ) ) {
+			$body .= 'Workers occupés (mod_status) : ' . ( $apacheStatus['BusyWorkers'] ?? '?' ) . "\n";
+			$body .= 'Workers inactifs (mod_status) : ' . ( $apacheStatus['IdleWorkers'] ?? '?' ) . "\n";
+		} else {
+			$body .= "Workers occupés/inactifs (mod_status) : indisponible\n";
+		}
+
+		$body .= 'États OS des processus Apache : ';
+		$body .= $this->formatCountMap( $snapshot['apacheProcessStates'] ?? [] ) . "\n";
+
+		$body .= "\nPHP-FPM webmaster_php\n";
+		$body .= "---------------------\n\n";
+		$phpStatus = $snapshot['phpFpmStatus'] ?? [];
+
+		if ( $phpStatus ) {
+			$labels = [
+				'activeProcesses' => 'Processus actifs',
+				'idleProcesses' => 'Processus inactifs',
+				'totalProcesses' => 'Processus totaux',
+				'maxActiveProcesses' => 'Maximum de processus actifs',
+				'maxChildrenReached' => 'Max children reached',
+				'slowRequests' => 'Requêtes lentes',
+				'listenQueue' => 'File d’attente actuelle',
+				'maxListenQueue' => 'File d’attente maximale',
+			];
+
+			foreach ( $labels as $key => $label ) {
+				if ( array_key_exists( $key, $phpStatus ) ) {
+					$body .= "$label : {$phpStatus[$key]}\n";
+				}
+			}
+		} else {
+			$body .= "Statut détaillé PHP-FPM : indisponible (pm.status_path non accessible)\n";
+		}
+
+		$body .= 'États OS des workers PHP-FPM : ';
+		$body .= $this->formatCountMap( $snapshot['phpFpmProcessStates'] ?? [] ) . "\n";
+
+		if ( !empty( $snapshot['phpFpmTopWorkers'] ) ) {
+			$body .= "Échantillon des workers PHP-FPM (triés par CPU) :\n";
+
+			foreach ( $snapshot['phpFpmTopWorkers'] as $worker ) {
+				$body .= "	$worker\n";
+			}
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
+	private function formatCountMap( array $counts ): string {
+		if ( !$counts ) {
+			return 'indisponible';
+		}
+
+		$parts = [];
+
+		foreach ( $counts as $key => $count ) {
+			$parts[] = "$key=$count";
+		}
+
+		return implode( ', ', $parts );
+	}
+
 	private function buildTrafficSummary( array $logs ): string {
 		$body = "Trafic récent par wiki\n";
 		$body .= "----------------------\n\n";
@@ -982,7 +1409,9 @@ class ServerHealthMail extends Maintenance {
 			$body .= " | internes ignorées={$data['internalRequests']}";
 			$body .= ' | IP=' . count( $data['allIps'] );
 			$body .= " | pages={$data['pageRequests']}";
+			$body .= " | ordinaires={$data['ordinaryPageRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
+			$body .= " | rejets 418={$data['fastRejectedRequests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
 			$body .= " | POST API={$data['apiPostRequests']}";
 			$body .= " | très suspectes={$data['suspiciousRequests']}\n";
@@ -1014,14 +1443,19 @@ class ServerHealthMail extends Maintenance {
 			$body .= "Requêtes analysées : {$data['totalRequests']}\n";
 			$body .= 'IP distinctes sur le trafic analysé : ' . count( $data['allIps'] ) . "\n";
 			$body .= "Requêtes de pages : {$data['pageRequests']}\n";
+			$body .= "Pages ordinaires : {$data['ordinaryPageRequests']}\n";
+			$body .= 'IP distinctes sur pages ordinaires : ' . count( $data['ordinaryPageIps'] ) . "\n";
 			$body .= "Requêtes dynamiques : {$data['dynamicRequests']}\n";
 			$body .= 'IP distinctes sur requêtes dynamiques : ' . count( $data['dynamicIps'] ) . "\n";
+			$body .= "Rejets rapides HTTP 418 : {$data['fastRejectedRequests']}\n";
+			$body .= 'IP distinctes sur rejets HTTP 418 : ' . count( $data['fastRejectedIps'] ) . "\n";
 			$body .= "POST vers /w/api.php : {$data['apiPostRequests']}\n";
 			$body .= "Requêtes très suspectes : {$data['suspiciousRequests']}\n";
 			$body .= 'IP distinctes sur requêtes très suspectes : ';
 			$body .= count( $data['suspiciousIps'] ) . "\n\n";
 
 			$body .= $this->buildAllTrafficDiagnostics( $data );
+			$body .= $this->buildFastRejectDiagnostics( $data );
 			$body .= $this->buildTopUserAgents( $data );
 			$body .= $this->buildTopDynamicUrls( $data );
 			$body .= $this->buildRelevantLogLines( $data );
@@ -1231,6 +1665,49 @@ class ServerHealthMail extends Maintenance {
 		return $body;
 	}
 
+	private function buildFastRejectDiagnostics( array $data ): string {
+		$body = "Rejets rapides HTTP 418 — CrawlerProtection\n";
+		$body .= "-------------------------------------------\n\n";
+		$body .= "Total : {$data['fastRejectedRequests']}\n";
+		$body .= 'IP différentes : ' . count( $data['fastRejectedIps'] ) . "\n\n";
+
+		if ( $data['fastRejectedRequests'] === 0 ) {
+			$body .= "Aucun rejet rapide HTTP 418 dans la fenêtre analysée.\n\n";
+			return $body;
+		}
+
+		$urls = $data['fastRejectedUrls'];
+		uasort( $urls, static function ( array $a, array $b ): int {
+			if ( $a['count'] !== $b['count'] ) {
+				return $b['count'] <=> $a['count'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$body .= "URL rejetées les plus fréquentes :\n";
+		$shown = 0;
+
+		foreach ( $urls as $url => $stats ) {
+			$body .= "	{$stats['count']} requête(s) | " . count( $stats['ips'] ) . " IP | $url\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_FAST_REJECT_URLS ) {
+				break;
+			}
+		}
+
+		$body .= "Rejets HTTP 418 récents :\n";
+
+		foreach ( array_slice( $data['recentFastRejectedLines'], 0, 20 ) as $line ) {
+			$body .= "	$line\n";
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
 	private function buildTopUserAgents( array $data ): string {
 		$uas = $data['ua'];
 
@@ -1389,8 +1866,10 @@ class ServerHealthMail extends Maintenance {
 			$body .= "$wiki : {$data['totalRequests']} analysées";
 			$body .= " | brutes=$rawCount";
 			$body .= " | internes ignorées={$data['internalRequests']}";
+			$body .= " | ordinaires={$data['ordinaryPageRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
-			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] ) . "\n";
+			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
+			$body .= " | rejets 418={$data['fastRejectedRequests']}\n";
 		}
 
 		return $body;
@@ -1438,6 +1917,7 @@ class ServerHealthMail extends Maintenance {
 	private function sendTestMail(
 		string $configWiki,
 		array $server,
+		array $serverSnapshot,
 		array $logs,
 		int $windowMinutes
 	): void {
@@ -1453,6 +1933,7 @@ class ServerHealthMail extends Maintenance {
 		$body .= "Apache : {$server['apache']} processus\n";
 		$body .= "Connexions HTTPS établies : {$server['https']}\n";
 		$body .= "PHP-FPM webmaster_php : {$server['phpFpm']} workers\n\n";
+		$body .= $this->buildServerSnapshotDiagnostics( $serverSnapshot );
 		$body .= $this->buildTrafficSummary( $logs );
 		$body .= $this->buildWikiDiagnostics( $diagnosticWikis, $logs );
 
