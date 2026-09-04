@@ -54,6 +54,13 @@ class ServerHealthMail extends Maintenance {
 	private const ORDINARY_PAGE_REQUEST_THRESHOLD = 80;
 	private const ORDINARY_PAGE_IP_THRESHOLD = 70;
 	private const ORDINARY_PAGE_IP_RATIO_THRESHOLD = 0.85;
+	private const ORDINARY_PAGE_NON_DECLARED_BOT_REQUEST_THRESHOLD = 70;
+	private const ORDINARY_PAGE_NON_DECLARED_BOT_IP_THRESHOLD = 65;
+	private const ORDINARY_PAGE_NON_DECLARED_BOT_IP_RATIO_THRESHOLD = 0.85;
+	private const ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_1_THRESHOLD = 6;
+	private const ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_5_THRESHOLD = 10;
+	private const ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_10_THRESHOLD = 15;
+	private const DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD = 80;
 	private const ORDINARY_PAGE_CONCENTRATED_REQUEST_THRESHOLD = 300;
 	private const ORDINARY_PAGE_HEAVY_IP_REQUEST_THRESHOLD = 80;
 	private const ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD = 0.70;
@@ -72,6 +79,8 @@ class ServerHealthMail extends Maintenance {
 	private const MAX_TOP_ALL_UAS = 10;
 	private const MAX_TOP_PATHS = 15;
 	private const MAX_TOP_IPS = 10;
+	private const MAX_TOP_ORDINARY_SECONDS = 10;
+	private const MAX_TOP_ORDINARY_UA_REF_GROUPS = 10;
 	private const MAX_API_POST_UAS = 10;
 	private const MAX_RECENT_ORDINARY_LINES = 100;
 	private const MAX_RECENT_FAST_REJECT_LINES = 50;
@@ -170,6 +179,7 @@ class ServerHealthMail extends Maintenance {
 		}
 
 		$crawlerIssues = $this->detectCrawlerIssues( $logs );
+		$hasCrawlerIssues = $crawlerIssues !== [];
 
 		foreach ( $crawlerIssues as $issue ) {
 			$issues[] = $issue;
@@ -189,14 +199,20 @@ class ServerHealthMail extends Maintenance {
 			$signature = $this->buildIssueSignature( $issues, $affectedWikiCodes );
 
 			if ( empty( $state['active'] ) || ( $state['signature'] ?? '' ) !== $signature ) {
-				$subject = $this->buildAlertSubject( $affectedWikiCodes );
+				$subject = $this->buildAlertSubject(
+					$affectedWikiCodes,
+					$serverThresholdExceeded,
+					$hasCrawlerIssues
+				);
 				$body = $this->buildAlertBody(
 					$affectedWikiCodes,
 					$issues,
 					$server,
 					$serverSnapshot,
 					$logs,
-					$windowMinutes
+					$windowMinutes,
+					$serverThresholdExceeded,
+					$hasCrawlerIssues
 				);
 
 				$this->sendMail( $subject, $body );
@@ -209,6 +225,7 @@ class ServerHealthMail extends Maintenance {
 						? ( $state['startedAt'] ?? $now->format( DATE_ATOM ) )
 						: $now->format( DATE_ATOM ),
 					'lastAlertAt' => $now->format( DATE_ATOM ),
+					'alertClass' => $serverThresholdExceeded ? 'server' : 'traffic',
 					'fpmMaxChildrenReached' => $server['phpFpmMaxChildrenReached']
 						?? ( $state['fpmMaxChildrenReached'] ?? null ),
 				] );
@@ -224,7 +241,8 @@ class ServerHealthMail extends Maintenance {
 
 		if ( !empty( $state['active'] ) ) {
 			$previousWikis = $state['affectedWikis'] ?? [];
-			$subject = $this->buildRecoverySubject( $previousWikis );
+			$previousAlertClass = (string)( $state['alertClass'] ?? 'server' );
+			$subject = $this->buildRecoverySubject( $previousWikis, $previousAlertClass );
 			$body = $this->buildRecoveryBody(
 				$previousWikis,
 				$server,
@@ -617,7 +635,20 @@ class ServerHealthMail extends Maintenance {
 				'ordinaryPageRequests' => 0,
 				'ordinaryPageIps' => [],
 				'ordinaryPageIpRequestCounts' => [],
+				'ordinaryPageSecondCounts' => [],
+				'ordinaryPageSecondIps' => [],
+				'ordinaryPageUaRefGroups' => [],
+				'ordinaryPageDeclaredBotRequests' => 0,
+				'ordinaryPageDeclaredBotIps' => [],
+				'ordinaryPageDeclaredBotUa' => [],
+				'ordinaryPageNonDeclaredBotRequests' => 0,
+				'ordinaryPageNonDeclaredBotIps' => [],
+				'ordinaryPageNonDeclaredBotIpRequestCounts' => [],
+				'ordinaryPageNonDeclaredBotSecondCounts' => [],
+				'ordinaryPageNonDeclaredBotSecondIps' => [],
+				'ordinaryPageNonDeclaredBotUaRefGroups' => [],
 				'recentOrdinaryPageLines' => [],
+				'recentOrdinaryPageNonDeclaredBotLines' => [],
 				'dynamicRequests' => 0,
 				'dynamicIps' => [],
 				'fastRejectedRequests' => 0,
@@ -773,6 +804,73 @@ class ServerHealthMail extends Maintenance {
 					$result[$wiki]['ordinaryPageIpRequestCounts'][$parsed['ip']] =
 						( $result[$wiki]['ordinaryPageIpRequestCounts'][$parsed['ip']] ?? 0 ) + 1;
 
+					$second = $parsed['time']->getTimestamp();
+					$result[$wiki]['ordinaryPageSecondCounts'][$second] =
+						( $result[$wiki]['ordinaryPageSecondCounts'][$second] ?? 0 ) + 1;
+					$result[$wiki]['ordinaryPageSecondIps'][$second][$parsed['ip']] = true;
+
+					$uaRefKey = sha1( $ua . "\n" . $safeReferrer );
+
+					if ( !isset( $result[$wiki]['ordinaryPageUaRefGroups'][$uaRefKey] ) ) {
+						$result[$wiki]['ordinaryPageUaRefGroups'][$uaRefKey] = [
+							'ua' => $ua,
+							'referrer' => $safeReferrer,
+							'requests' => 0,
+							'ips' => [],
+						];
+					}
+
+					$result[$wiki]['ordinaryPageUaRefGroups'][$uaRefKey]['requests']++;
+					$result[$wiki]['ordinaryPageUaRefGroups'][$uaRefKey]['ips'][$parsed['ip']] = true;
+
+					if ( $this->isSelfDeclaredBotUserAgent( $ua ) ) {
+						$result[$wiki]['ordinaryPageDeclaredBotRequests']++;
+						$result[$wiki]['ordinaryPageDeclaredBotIps'][$parsed['ip']] = true;
+
+						if ( !isset( $result[$wiki]['ordinaryPageDeclaredBotUa'][$ua] ) ) {
+							$result[$wiki]['ordinaryPageDeclaredBotUa'][$ua] = [
+								'requests' => 0,
+								'ips' => [],
+								'lines' => [],
+							];
+						}
+
+						$result[$wiki]['ordinaryPageDeclaredBotUa'][$ua]['requests']++;
+						$result[$wiki]['ordinaryPageDeclaredBotUa'][$ua]['ips'][$parsed['ip']] = true;
+
+						if (
+							count( $result[$wiki]['ordinaryPageDeclaredBotUa'][$ua]['lines'] ) < self::MAX_UA_LINES
+						) {
+							$result[$wiki]['ordinaryPageDeclaredBotUa'][$ua]['lines'][] = $formattedLine;
+						}
+					} else {
+						$result[$wiki]['ordinaryPageNonDeclaredBotRequests']++;
+						$result[$wiki]['ordinaryPageNonDeclaredBotIps'][$parsed['ip']] = true;
+						$result[$wiki]['ordinaryPageNonDeclaredBotIpRequestCounts'][$parsed['ip']] =
+							( $result[$wiki]['ordinaryPageNonDeclaredBotIpRequestCounts'][$parsed['ip']] ?? 0 ) + 1;
+						$result[$wiki]['ordinaryPageNonDeclaredBotSecondCounts'][$second] =
+							( $result[$wiki]['ordinaryPageNonDeclaredBotSecondCounts'][$second] ?? 0 ) + 1;
+						$result[$wiki]['ordinaryPageNonDeclaredBotSecondIps'][$second][$parsed['ip']] = true;
+
+						if ( !isset( $result[$wiki]['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey] ) ) {
+							$result[$wiki]['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey] = [
+								'ua' => $ua,
+								'referrer' => $safeReferrer,
+								'requests' => 0,
+								'ips' => [],
+							];
+						}
+
+						$result[$wiki]['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey]['requests']++;
+						$result[$wiki]['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey]['ips'][$parsed['ip']] = true;
+
+						if (
+							count( $result[$wiki]['recentOrdinaryPageNonDeclaredBotLines'] ) < self::MAX_RECENT_ORDINARY_LINES
+						) {
+							$result[$wiki]['recentOrdinaryPageNonDeclaredBotLines'][] = $formattedLine;
+						}
+					}
+
 					if ( count( $result[$wiki]['recentOrdinaryPageLines'] ) < self::MAX_RECENT_ORDINARY_LINES ) {
 						$result[$wiki]['recentOrdinaryPageLines'][] = $formattedLine;
 					}
@@ -909,6 +1007,20 @@ class ServerHealthMail extends Maintenance {
 		}
 
 		return $ua;
+	}
+
+	private function isSelfDeclaredBotUserAgent( string $ua ): bool {
+		// Ce classement est uniquement comportemental et déclaratif : un UA peut être usurpé.
+		// Il ne doit jamais servir d'exemption de sécurité.
+		$normalized = strtolower( $ua );
+
+		foreach ( [ 'bot', 'spider', 'crawler', 'slurp', 'indexer', 'externalhit' ] as $marker ) {
+			if ( str_contains( $normalized, $marker ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private function classifyRequest( string $url ): array {
@@ -1113,6 +1225,87 @@ class ServerHealthMail extends Maintenance {
 		return $line;
 	}
 
+	private function countSingleOrdinaryPageIps( array $ipCounts ): int {
+		return count(
+			array_filter(
+				$ipCounts,
+				static fn ( int $count ): bool => $count === 1
+			)
+		);
+	}
+
+	private function getOrdinaryPageWindowPeak(
+		array $secondCounts,
+		array $secondIps,
+		int $windowSeconds
+	): array {
+		if ( !$secondCounts || $windowSeconds < 1 ) {
+			return [
+				'requests' => 0,
+				'ips' => 0,
+				'start' => null,
+			];
+		}
+
+		ksort( $secondCounts, SORT_NUMERIC );
+		$starts = array_keys( $secondCounts );
+		$bestRequests = 0;
+		$bestIps = 0;
+		$bestStart = null;
+
+		foreach ( $starts as $start ) {
+			$requests = 0;
+			$ips = [];
+			$end = $start + $windowSeconds - 1;
+
+			foreach ( $secondCounts as $second => $count ) {
+				if ( $second < $start ) {
+					continue;
+				}
+
+				if ( $second > $end ) {
+					break;
+				}
+
+				$requests += $count;
+
+				foreach ( $secondIps[$second] ?? [] as $ip => $_ ) {
+					$ips[$ip] = true;
+				}
+			}
+
+			if ( $requests > $bestRequests ) {
+				$bestRequests = $requests;
+				$bestIps = count( $ips );
+				$bestStart = $start;
+			}
+		}
+
+		return [
+			'requests' => $bestRequests,
+			'ips' => $bestIps,
+			'start' => $bestStart,
+		];
+	}
+
+	private function getTopOrdinaryUaRefGroup( array $groups ): ?array {
+		if ( !$groups ) {
+			return null;
+		}
+
+		uasort( $groups, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$top = reset( $groups );
+
+		return is_array( $top ) ? $top : null;
+	}
+
 	private function detectCrawlerIssues( array $logs ): array {
 		$issues = [];
 
@@ -1123,10 +1316,67 @@ class ServerHealthMail extends Maintenance {
 			$ordinaryPageRatio = $data['ordinaryPageRequests'] > 0
 				? $ordinaryPageIps / $data['ordinaryPageRequests']
 				: 0.0;
+			$singleOrdinaryPageIps = $this->countSingleOrdinaryPageIps(
+				$data['ordinaryPageIpRequestCounts']
+			);
+			$singleOrdinaryPageIpShare = $ordinaryPageIps > 0
+				? $singleOrdinaryPageIps / $ordinaryPageIps
+				: 0.0;
+			$ordinaryPeak1 = $this->getOrdinaryPageWindowPeak(
+				$data['ordinaryPageSecondCounts'],
+				$data['ordinaryPageSecondIps'],
+				1
+			);
+			$ordinaryPeak5 = $this->getOrdinaryPageWindowPeak(
+				$data['ordinaryPageSecondCounts'],
+				$data['ordinaryPageSecondIps'],
+				5
+			);
+			$ordinaryPeak10 = $this->getOrdinaryPageWindowPeak(
+				$data['ordinaryPageSecondCounts'],
+				$data['ordinaryPageSecondIps'],
+				10
+			);
+			$topOrdinaryUaRefGroup = $this->getTopOrdinaryUaRefGroup(
+				$data['ordinaryPageUaRefGroups']
+			);
+
+			$nonDeclaredBotOrdinaryRequests = $data['ordinaryPageNonDeclaredBotRequests'];
+			$nonDeclaredBotOrdinaryIps = count( $data['ordinaryPageNonDeclaredBotIps'] );
+			$nonDeclaredBotOrdinaryRatio = $nonDeclaredBotOrdinaryRequests > 0
+				? $nonDeclaredBotOrdinaryIps / $nonDeclaredBotOrdinaryRequests
+				: 0.0;
+			$nonDeclaredBotPeak1 = $this->getOrdinaryPageWindowPeak(
+				$data['ordinaryPageNonDeclaredBotSecondCounts'],
+				$data['ordinaryPageNonDeclaredBotSecondIps'],
+				1
+			);
+			$nonDeclaredBotPeak5 = $this->getOrdinaryPageWindowPeak(
+				$data['ordinaryPageNonDeclaredBotSecondCounts'],
+				$data['ordinaryPageNonDeclaredBotSecondIps'],
+				5
+			);
+			$nonDeclaredBotPeak10 = $this->getOrdinaryPageWindowPeak(
+				$data['ordinaryPageNonDeclaredBotSecondCounts'],
+				$data['ordinaryPageNonDeclaredBotSecondIps'],
+				10
+			);
+			$topNonDeclaredBotUaRefGroup = $this->getTopOrdinaryUaRefGroup(
+				$data['ordinaryPageNonDeclaredBotUaRefGroups']
+			);
+			$hasNonDeclaredBotBurst = (
+				$nonDeclaredBotPeak1['requests'] >= self::ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_1_THRESHOLD
+				|| $nonDeclaredBotPeak5['requests'] >= self::ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_5_THRESHOLD
+				|| $nonDeclaredBotPeak10['requests'] >= self::ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_10_THRESHOLD
+			);
 			$isWikiOrdinaryDistributed = (
 				$data['ordinaryPageRequests'] >= self::ORDINARY_PAGE_REQUEST_THRESHOLD
 				&& $ordinaryPageIps >= self::ORDINARY_PAGE_IP_THRESHOLD
 				&& $ordinaryPageRatio >= self::ORDINARY_PAGE_IP_RATIO_THRESHOLD
+				&& $nonDeclaredBotOrdinaryRequests >= self::ORDINARY_PAGE_NON_DECLARED_BOT_REQUEST_THRESHOLD
+				&& $nonDeclaredBotOrdinaryIps >= self::ORDINARY_PAGE_NON_DECLARED_BOT_IP_THRESHOLD
+				&& $nonDeclaredBotOrdinaryRatio >= self::ORDINARY_PAGE_NON_DECLARED_BOT_IP_RATIO_THRESHOLD
+				&& $hasNonDeclaredBotBurst
 			);
 			$isWikiDynamicDistributed = (
 				$data['dynamicRequests'] >= self::WIKI_DYNAMIC_REQUEST_THRESHOLD
@@ -1149,13 +1399,47 @@ class ServerHealthMail extends Maintenance {
 			if ( $isWikiOrdinaryDistributed ) {
 				$issues[] = [
 					'type' => 'crawler-wiki-ordinary-distributed',
-					'label' => 'Crawler distribué de pages ordinaires possible',
+					'label' => 'Crawler distribué anonyme de pages ordinaires possible',
 					'wiki' => $wiki,
 					'ordinary' => $data['ordinaryPageRequests'],
 					'ips' => $ordinaryPageIps,
 					'ipRatio' => $ordinaryPageRatio,
+					'nonDeclaredBotOrdinary' => $nonDeclaredBotOrdinaryRequests,
+					'nonDeclaredBotIps' => $nonDeclaredBotOrdinaryIps,
+					'nonDeclaredBotIpRatio' => $nonDeclaredBotOrdinaryRatio,
+					'singleRequestIps' => $singleOrdinaryPageIps,
+					'singleRequestIpShare' => $singleOrdinaryPageIpShare,
+					'peak1' => $ordinaryPeak1,
+					'peak5' => $ordinaryPeak5,
+					'peak10' => $ordinaryPeak10,
+					'nonDeclaredBotPeak1' => $nonDeclaredBotPeak1,
+					'nonDeclaredBotPeak5' => $nonDeclaredBotPeak5,
+					'nonDeclaredBotPeak10' => $nonDeclaredBotPeak10,
+					'topUaRefGroup' => $topNonDeclaredBotUaRefGroup,
 					'logLines' => array_slice(
-						$data['recentOrdinaryPageLines'],
+						$data['recentOrdinaryPageNonDeclaredBotLines'],
+						0,
+						self::MAX_MAIL_LINES_PER_WIKI
+					),
+				];
+			}
+
+			foreach ( $data['ordinaryPageDeclaredBotUa'] as $ua => $stats ) {
+				if ( $stats['requests'] < self::DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD ) {
+					continue;
+				}
+
+				$ipCount = count( $stats['ips'] );
+				$issues[] = [
+					'type' => 'crawler-declared-bot-ordinary-heavy',
+					'label' => 'Crawler déclaré très actif sur pages ordinaires',
+					'wiki' => $wiki,
+					'ua' => $ua,
+					'ordinary' => $stats['requests'],
+					'ips' => $ipCount,
+					'requestsPerIp' => $ipCount > 0 ? $stats['requests'] / $ipCount : 0.0,
+					'logLines' => array_slice(
+						$stats['lines'],
 						0,
 						self::MAX_MAIL_LINES_PER_WIKI
 					),
@@ -1174,6 +1458,12 @@ class ServerHealthMail extends Maintenance {
 					'requestsPerIp' => $heavyOrdinaryIps > 0
 						? $heavyOrdinaryRequests / $heavyOrdinaryIps
 						: 0.0,
+					'singleRequestIps' => $singleOrdinaryPageIps,
+					'singleRequestIpShare' => $singleOrdinaryPageIpShare,
+					'peak1' => $ordinaryPeak1,
+					'peak5' => $ordinaryPeak5,
+					'peak10' => $ordinaryPeak10,
+					'topUaRefGroup' => $topOrdinaryUaRefGroup,
 					'logLines' => array_slice(
 						$data['recentOrdinaryPageLines'],
 						0,
@@ -1313,14 +1603,30 @@ class ServerHealthMail extends Maintenance {
 		return sha1( json_encode( $signatureData, JSON_UNESCAPED_UNICODE ) );
 	}
 
-	private function buildAlertSubject( array $affectedWikis ): string {
+	private function buildAlertSubject(
+		array $affectedWikis,
+		bool $serverPressure,
+		bool $hasCrawlerIssues
+	): string {
 		$wikiLabel = $affectedWikis ? implode( ', ', $affectedWikis ) : 'GLOBAL';
 
-		return "[Alerte serveur][$wikiLabel] Charge ou crawler anormal";
+		if ( !$serverPressure ) {
+			return "[Alerte trafic][$wikiLabel] Crawler anormal sans pression serveur";
+		}
+
+		if ( $hasCrawlerIssues ) {
+			return "[Alerte serveur][$wikiLabel] Pression serveur et crawler anormal";
+		}
+
+		return "[Alerte serveur][$wikiLabel] Pression serveur";
 	}
 
-	private function buildRecoverySubject( array $affectedWikis ): string {
+	private function buildRecoverySubject( array $affectedWikis, string $alertClass ): string {
 		$wikiLabel = $affectedWikis ? implode( ', ', $affectedWikis ) : 'GLOBAL';
+
+		if ( $alertClass === 'traffic' ) {
+			return "[Retour à la normale][$wikiLabel] Trafic Wikidébats";
+		}
 
 		return "[Retour à la normale][$wikiLabel] Serveur Wikidébats";
 	}
@@ -1331,17 +1637,33 @@ class ServerHealthMail extends Maintenance {
 		array $server,
 		array $serverSnapshot,
 		array $logs,
-		int $windowMinutes
+		int $windowMinutes,
+		bool $serverPressure,
+		bool $hasCrawlerIssues
 	): string {
 		$timezone = new DateTimeZone( 'Europe/Paris' );
 		$now = new DateTimeImmutable( 'now', $timezone );
 		$wikiLabel = $affectedWikis ? implode( ', ', $affectedWikis ) : 'GLOBAL';
 
-		$body = "Alerte serveur Wikidébats\n";
-		$body .= "========================\n\n";
+		if ( $serverPressure ) {
+			$body = "Alerte serveur Wikidébats\n";
+			$body .= "========================\n\n";
+		} else {
+			$body = "Alerte trafic Wikidébats\n";
+			$body .= "=======================\n\n";
+		}
+
 		$body .= "Wiki(s) touché(s) : $wikiLabel\n";
 		$body .= 'Date : ' . $now->format( 'd/m/Y H:i:s T' ) . "\n";
-		$body .= "Fenêtre d’analyse : $windowMinutes minutes\n\n";
+		$body .= "Fenêtre d’analyse : $windowMinutes minutes\n";
+
+		if ( $serverPressure && $hasCrawlerIssues ) {
+			$body .= "Qualification : crawler détecté + pression serveur\n\n";
+		} elseif ( $serverPressure ) {
+			$body .= "Qualification : pression serveur détectée\n\n";
+		} else {
+			$body .= "Qualification : crawler détecté — aucune pression serveur détectée par les seuils\n\n";
+		}
 
 		$body .= "État du serveur\n";
 		$body .= "---------------\n\n";
@@ -1363,8 +1685,8 @@ class ServerHealthMail extends Maintenance {
 			$body .= $this->buildServerSnapshotDiagnostics( $serverSnapshot );
 		}
 
-		$body .= "Anomalies détectées\n";
-		$body .= "-------------------\n\n";
+		$body .= $serverPressure ? "Anomalies détectées\n" : "Anomalies de trafic détectées\n";
+		$body .= $serverPressure ? "-------------------\n\n" : "-----------------------------\n\n";
 
 		foreach ( $issues as $issue ) {
 			$body .= '- ' . $issue['label'];
@@ -1393,6 +1715,54 @@ class ServerHealthMail extends Maintenance {
 
 			if ( isset( $issue['ipRatio'] ) ) {
 				$body .= "\tRatio IP/page : " . number_format( $issue['ipRatio'], 2, ',', '' ) . "\n";
+			}
+
+			if ( isset( $issue['nonDeclaredBotOrdinary'] ) ) {
+				$body .= "\tPages ordinaires hors UA se déclarant comme bots : {$issue['nonDeclaredBotOrdinary']}\n";
+				$body .= "\tIP correspondantes : {$issue['nonDeclaredBotIps']}\n";
+				$body .= "\tRatio IP/page hors bots déclarés : ";
+				$body .= number_format( $issue['nonDeclaredBotIpRatio'], 2, ',', '' ) . "\n";
+			}
+
+			if ( isset( $issue['singleRequestIps'] ) ) {
+				$body .= "\tIP avec exactement 1 page ordinaire : {$issue['singleRequestIps']}";
+
+				if ( isset( $issue['singleRequestIpShare'] ) ) {
+					$body .= ' (' . number_format( $issue['singleRequestIpShare'] * 100, 1, ',', '' ) . ' %)';
+				}
+
+				$body .= "\n";
+			}
+
+			foreach ( [ 1 => 'peak1', 5 => 'peak5', 10 => 'peak10' ] as $seconds => $peakKey ) {
+				if ( empty( $issue[$peakKey] ) ) {
+					continue;
+				}
+
+				$peak = $issue[$peakKey];
+				$body .= "\tPic sur {$seconds} s : {$peak['requests']} requête(s)";
+				$body .= " | {$peak['ips']} IP\n";
+			}
+
+			foreach (
+				[ 1 => 'nonDeclaredBotPeak1', 5 => 'nonDeclaredBotPeak5', 10 => 'nonDeclaredBotPeak10' ]
+				as $seconds => $peakKey
+			) {
+				if ( empty( $issue[$peakKey] ) ) {
+					continue;
+				}
+
+				$peak = $issue[$peakKey];
+				$body .= "\tPic hors bots déclarés sur {$seconds} s : {$peak['requests']} requête(s)";
+				$body .= " | {$peak['ips']} IP\n";
+			}
+
+			if ( !empty( $issue['topUaRefGroup'] ) ) {
+				$group = $issue['topUaRefGroup'];
+				$body .= "\tPrincipal couple UA + Referer : {$group['requests']} requête(s)";
+				$body .= ' | ' . count( $group['ips'] ) . " IP\n";
+				$body .= "\t\tUA : {$group['ua']}\n";
+				$body .= "\t\tReferer : " . ( $group['referrer'] !== '' ? $group['referrer'] : '(vide)' ) . "\n";
 			}
 
 			if ( isset( $issue['heavyRequests'] ) ) {
@@ -1582,6 +1952,8 @@ class ServerHealthMail extends Maintenance {
 			$body .= ' | req/IP=' . number_format( $requestsPerIp, 1, ',', '' );
 			$body .= " | pages={$data['pageRequests']}";
 			$body .= " | ordinaires={$data['ordinaryPageRequests']}";
+			$body .= " | bots déclarés={$data['ordinaryPageDeclaredBotRequests']}";
+			$body .= " | autres UA={$data['ordinaryPageNonDeclaredBotRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
 			$body .= " | rejets 418={$data['fastRejectedRequests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
@@ -1627,6 +1999,23 @@ class ServerHealthMail extends Maintenance {
 			$body .= 'Ratio pages ordinaires/IP : ';
 			$body .= $ordinaryIpCount > 0
 				? number_format( $data['ordinaryPageRequests'] / $ordinaryIpCount, 2, ',', '' )
+				: '0';
+			$body .= "\n";
+			$declaredBotOrdinary = $data['ordinaryPageDeclaredBotRequests'];
+			$declaredBotOrdinaryShare = $data['ordinaryPageRequests'] > 0
+				? $declaredBotOrdinary / $data['ordinaryPageRequests']
+				: 0.0;
+			$nonDeclaredBotOrdinary = $data['ordinaryPageNonDeclaredBotRequests'];
+			$nonDeclaredBotOrdinaryIps = count( $data['ordinaryPageNonDeclaredBotIps'] );
+			$body .= "Pages ordinaires — UA se déclarant comme bots : $declaredBotOrdinary";
+			$body .= ' (' . number_format( $declaredBotOrdinaryShare * 100, 1, ',', '' ) . " %)\n";
+			$body .= 'IP distinctes — UA se déclarant comme bots : ';
+			$body .= count( $data['ordinaryPageDeclaredBotIps'] ) . "\n";
+			$body .= "Pages ordinaires — autres UA : $nonDeclaredBotOrdinary\n";
+			$body .= "IP distinctes — autres UA : $nonDeclaredBotOrdinaryIps\n";
+			$body .= 'Ratio pages ordinaires/IP — autres UA : ';
+			$body .= $nonDeclaredBotOrdinaryIps > 0
+				? number_format( $nonDeclaredBotOrdinary / $nonDeclaredBotOrdinaryIps, 2, ',', '' )
 				: '0';
 			$body .= "\n";
 			$body .= "Requêtes dynamiques : {$data['dynamicRequests']}\n";
@@ -1685,6 +2074,7 @@ class ServerHealthMail extends Maintenance {
 		$body .= $this->buildTopPaths( $data );
 		$body .= $this->buildTopIps( $data );
 		$body .= $this->buildTopOrdinaryPageIps( $data );
+		$body .= $this->buildOrdinaryPageBehaviorDiagnostics( $data );
 		$body .= $this->buildApiPostDiagnostics( $data );
 
 		return $body;
@@ -1825,6 +2215,143 @@ class ServerHealthMail extends Maintenance {
 		}
 
 		$body .= "\n";
+
+		return $body;
+	}
+
+	private function buildOrdinaryPageBehaviorDiagnostics( array $data ): string {
+		$ipCounts = $data['ordinaryPageIpRequestCounts'] ?? [];
+		$ordinaryIpCount = count( $ipCounts );
+		$singleRequestIps = $this->countSingleOrdinaryPageIps( $ipCounts );
+		$singleRequestShare = $ordinaryIpCount > 0 ? $singleRequestIps / $ordinaryIpCount : 0.0;
+		$secondCounts = $data['ordinaryPageSecondCounts'] ?? [];
+		$secondIps = $data['ordinaryPageSecondIps'] ?? [];
+		$nonDeclaredSecondCounts = $data['ordinaryPageNonDeclaredBotSecondCounts'] ?? [];
+		$nonDeclaredSecondIps = $data['ordinaryPageNonDeclaredBotSecondIps'] ?? [];
+		$declaredBotRequests = $data['ordinaryPageDeclaredBotRequests'] ?? 0;
+		$ordinaryRequests = $data['ordinaryPageRequests'] ?? 0;
+		$declaredBotShare = $ordinaryRequests > 0 ? $declaredBotRequests / $ordinaryRequests : 0.0;
+
+		$body = "Comportement agrégé — pages ordinaires\n";
+		$body .= "---------------------------------------\n\n";
+		$body .= "IP avec exactement 1 page ordinaire : $singleRequestIps";
+		$body .= " / $ordinaryIpCount";
+		$body .= ' (' . number_format( $singleRequestShare * 100, 1, ',', '' ) . " %)\n";
+		$body .= "Pages avec UA se déclarant comme bot : $declaredBotRequests";
+		$body .= ' / ' . $ordinaryRequests;
+		$body .= ' (' . number_format( $declaredBotShare * 100, 1, ',', '' ) . " %)\n";
+		$body .= "Pages avec autres UA : " . ( $data['ordinaryPageNonDeclaredBotRequests'] ?? 0 );
+		$body .= ' | IP : ' . count( $data['ordinaryPageNonDeclaredBotIps'] ?? [] ) . "\n";
+		$body .= "Note : le classement « bot déclaré » repose uniquement sur le User-Agent et ne constitue pas une validation d’identité.\n";
+
+		foreach ( [ 1, 5, 10 ] as $seconds ) {
+			$peak = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, $seconds );
+			$body .= "Pic sur {$seconds} s : {$peak['requests']} requête(s)";
+			$body .= " | {$peak['ips']} IP";
+
+			if ( $peak['start'] !== null ) {
+				$time = ( new DateTimeImmutable( '@' . $peak['start'] ) )
+					->setTimezone( new DateTimeZone( 'Europe/Paris' ) );
+				$body .= ' | début ' . $time->format( 'H:i:s T' );
+			}
+
+			$body .= "\n";
+		}
+
+		foreach ( [ 1, 5, 10 ] as $seconds ) {
+			$peak = $this->getOrdinaryPageWindowPeak(
+				$nonDeclaredSecondCounts,
+				$nonDeclaredSecondIps,
+				$seconds
+			);
+			$body .= "Pic hors UA se déclarant comme bots sur {$seconds} s : {$peak['requests']} requête(s)";
+			$body .= " | {$peak['ips']} IP";
+
+			if ( $peak['start'] !== null ) {
+				$time = ( new DateTimeImmutable( '@' . $peak['start'] ) )
+					->setTimezone( new DateTimeZone( 'Europe/Paris' ) );
+				$body .= ' | début ' . $time->format( 'H:i:s T' );
+			}
+
+			$body .= "\n";
+		}
+
+		$body .= "\nUA se déclarant comme bots — pages ordinaires\n";
+		$body .= "----------------------------------------------\n\n";
+		$declaredBots = $data['ordinaryPageDeclaredBotUa'] ?? [];
+		uasort( $declaredBots, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+		$shown = 0;
+
+		foreach ( $declaredBots as $ua => $stats ) {
+			$body .= "{$stats['requests']} requête(s) | " . count( $stats['ips'] ) . " IP | $ua\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_ALL_UAS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucun UA se déclarant comme bot sur les pages ordinaires.\n";
+		}
+
+		$body .= "\nSecondes les plus actives — pages ordinaires\n";
+		$body .= "-------------------------------------------\n\n";
+
+		$topSeconds = $secondCounts;
+		arsort( $topSeconds, SORT_NUMERIC );
+		$shown = 0;
+
+		foreach ( $topSeconds as $second => $count ) {
+			$time = ( new DateTimeImmutable( '@' . $second ) )
+				->setTimezone( new DateTimeZone( 'Europe/Paris' ) );
+			$body .= $time->format( 'H:i:s T' ) . " | $count requête(s)";
+			$body .= ' | ' . count( $secondIps[$second] ?? [] ) . " IP\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_ORDINARY_SECONDS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucune page ordinaire horodatée.\n";
+		}
+
+		$body .= "\nCouples User-Agent + Referer — pages ordinaires\n";
+		$body .= "-----------------------------------------------\n\n";
+
+		$groups = $data['ordinaryPageUaRefGroups'] ?? [];
+		uasort( $groups, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+		$shown = 0;
+
+		foreach ( $groups as $group ) {
+			$body .= "{$group['requests']} requête(s)";
+			$body .= ' | ' . count( $group['ips'] ) . " IP\n";
+			$body .= "	UA : {$group['ua']}\n";
+			$body .= "	Referer : " . ( $group['referrer'] !== '' ? $group['referrer'] : '(vide)' ) . "\n\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_ORDINARY_UA_REF_GROUPS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucun couple User-Agent + Referer sur pages ordinaires.\n\n";
+		}
 
 		return $body;
 	}
@@ -2045,9 +2572,15 @@ class ServerHealthMail extends Maintenance {
 		$timezone = new DateTimeZone( 'Europe/Paris' );
 		$now = new DateTimeImmutable( 'now', $timezone );
 		$wikiLabel = $previousWikis ? implode( ', ', $previousWikis ) : 'GLOBAL';
+		$alertClass = (string)( $state['alertClass'] ?? 'server' );
 
-		$body = "Retour à la normale — serveur Wikidébats\n";
-		$body .= "========================================\n\n";
+		if ( $alertClass === 'traffic' ) {
+			$body = "Retour à la normale — trafic Wikidébats\n";
+			$body .= "=======================================\n\n";
+		} else {
+			$body = "Retour à la normale — serveur Wikidébats\n";
+			$body .= "========================================\n\n";
+		}
 		$body .= "Wiki(s) précédemment touché(s) : $wikiLabel\n";
 		$body .= 'Date : ' . $now->format( 'd/m/Y H:i:s T' ) . "\n";
 
@@ -2078,6 +2611,8 @@ class ServerHealthMail extends Maintenance {
 			$body .= " | brutes=$rawCount";
 			$body .= " | internes ignorées={$data['internalRequests']}";
 			$body .= " | ordinaires={$data['ordinaryPageRequests']}";
+			$body .= " | bots déclarés={$data['ordinaryPageDeclaredBotRequests']}";
+			$body .= " | autres UA={$data['ordinaryPageNonDeclaredBotRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
 			$body .= " | rejets 418={$data['fastRejectedRequests']}\n";
