@@ -60,7 +60,8 @@ class ServerHealthMail extends Maintenance {
 	private const ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_1_THRESHOLD = 6;
 	private const ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_5_THRESHOLD = 10;
 	private const ORDINARY_PAGE_NON_DECLARED_BOT_PEAK_10_THRESHOLD = 15;
-	private const DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD = 80;
+	private const DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD_WITH_PRESSURE = 80;
+	private const DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD_WITHOUT_PRESSURE = 300;
 	private const ORDINARY_PAGE_CONCENTRATED_REQUEST_THRESHOLD = 300;
 	private const ORDINARY_PAGE_HEAVY_IP_REQUEST_THRESHOLD = 80;
 	private const ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD = 0.70;
@@ -81,12 +82,17 @@ class ServerHealthMail extends Maintenance {
 	private const MAX_TOP_IPS = 10;
 	private const MAX_TOP_ORDINARY_SECONDS = 10;
 	private const MAX_TOP_ORDINARY_UA_REF_GROUPS = 10;
+	private const MAX_TOP_ORDINARY_IP_TEMPORAL = 10;
+	private const ORDINARY_IP_TEMPORAL_MIN_REQUESTS = 5;
 	private const MAX_API_POST_UAS = 10;
 	private const MAX_RECENT_ORDINARY_LINES = 100;
 	private const MAX_RECENT_FAST_REJECT_LINES = 50;
 	private const MAX_FAST_REJECT_URLS = 10;
 	private const MAX_SNAPSHOT_IPS = 15;
 	private const MAX_SNAPSHOT_WORKERS = 8;
+	private const MAX_APACHE_ACTIVE_WORKERS = 30;
+	private const MAX_APACHE_ACTIVE_REQUEST_GROUPS = 15;
+	private const MAX_TOP_ALL_REQUEST_SECONDS = 10;
 
 	private const STATE_FILE = '/home/users/webmaster/.cache/wikidebates-server-health.json';
 
@@ -178,7 +184,7 @@ class ServerHealthMail extends Maintenance {
 			$issues[] = $issue;
 		}
 
-		$crawlerIssues = $this->detectCrawlerIssues( $logs );
+		$crawlerIssues = $this->detectCrawlerIssues( $logs, $serverThresholdExceeded );
 		$hasCrawlerIssues = $crawlerIssues !== [];
 
 		foreach ( $crawlerIssues as $issue ) {
@@ -406,13 +412,37 @@ class ServerHealthMail extends Maintenance {
 		);
 
 		$apacheStatusRaw = $this->fetchLocalStatus( '/server-status?auto' );
+		$apacheStatusHtml = $this->fetchLocalStatus( '/server-status' );
 		$phpFpmStatusRaw = $this->fetchLocalStatus( '/fpm-status?json' );
+		$apacheStatus = $this->parseApacheStatus( $apacheStatusRaw );
+		$apacheWorkers = $this->parseApacheWorkerTable( $apacheStatusHtml );
+		$apacheActiveWorkers = $this->getActiveApacheWorkers( $apacheWorkers );
+		$apacheWorkerTableAvailable = (
+			$apacheStatusHtml !== ''
+			&& str_contains( $apacheStatusHtml, 'Srv' )
+			&& str_contains( $apacheStatusHtml, 'Request' )
+		);
 
 		return [
 			'httpsTopIps' => $this->countSocketPeerIps( $httpsEstablished ),
 			'httpsStates' => $this->countSocketStates( $httpsAll ),
 			'apacheProcessStates' => $this->countProcessStates( $apachePs ),
-			'apacheStatus' => $this->parseApacheStatus( $apacheStatusRaw ),
+			'apacheStatus' => $apacheStatus,
+			'apacheScoreboardStates' => $this->countApacheScoreboardStates(
+				(string)( $apacheStatus['Scoreboard'] ?? '' )
+			),
+			'apacheWorkerTableAvailable' => $apacheWorkerTableAvailable,
+			'apacheActiveWorkers' => array_slice(
+				$apacheActiveWorkers,
+				0,
+				self::MAX_APACHE_ACTIVE_WORKERS
+			),
+			'apacheActiveWorkerCount' => count( $apacheActiveWorkers ),
+			'apacheActiveRequestGroups' => array_slice(
+				$this->groupApacheActiveRequests( $apacheActiveWorkers ),
+				0,
+				self::MAX_APACHE_ACTIVE_REQUEST_GROUPS
+			),
 			'phpFpmProcessStates' => $this->countPhpFpmProcessStates( $phpPs ),
 			'phpFpmTopWorkers' => $this->extractPhpFpmWorkers( $phpPs ),
 			'phpFpmStatus' => $this->parsePhpFpmStatus( $phpFpmStatusRaw ),
@@ -562,6 +592,238 @@ class ServerHealthMail extends Maintenance {
 		return $result;
 	}
 
+
+	private function countApacheScoreboardStates( string $scoreboard ): array {
+		$counts = [];
+
+		foreach ( str_split( $scoreboard ) as $state ) {
+			$counts[$state] = ( $counts[$state] ?? 0 ) + 1;
+		}
+
+		arsort( $counts, SORT_NUMERIC );
+
+		return $counts;
+	}
+
+	private function parseApacheWorkerTable( string $html ): array {
+		if ( $html === '' ) {
+			return [];
+		}
+
+		if ( !preg_match_all( '/<tr\\b[^>]*>(.*?)<\\/tr>/is', $html, $rowMatches ) ) {
+			return [];
+		}
+
+		$headers = [];
+		$workers = [];
+
+		foreach ( $rowMatches[1] as $rowHtml ) {
+			if ( !preg_match_all( '/<t[hd]\\b[^>]*>(.*?)<\\/t[hd]>/is', $rowHtml, $cellMatches ) ) {
+				continue;
+			}
+
+			$cells = [];
+
+			foreach ( $cellMatches[1] as $cellHtml ) {
+				$text = html_entity_decode(
+					strip_tags( $cellHtml ),
+					ENT_QUOTES | ENT_HTML5,
+					'UTF-8'
+				);
+				$cells[] = trim( preg_replace( '/\\s+/u', ' ', $text ) );
+			}
+
+			if ( !$headers ) {
+				if ( in_array( 'Srv', $cells, true ) && in_array( 'M', $cells, true ) ) {
+					$headers = $cells;
+				}
+
+				continue;
+			}
+
+			if ( count( $cells ) < count( $headers ) ) {
+				continue;
+			}
+
+			$row = [];
+
+			foreach ( $headers as $index => $header ) {
+				$row[$header] = $cells[$index] ?? '';
+			}
+
+			$mode = trim( (string)( $row['M'] ?? '' ) );
+
+			if ( $mode === '' ) {
+				continue;
+			}
+
+			$requestParts = $this->parseApacheRequestLine( (string)( $row['Request'] ?? '' ) );
+			$workers[] = [
+				'srv' => (string)( $row['Srv'] ?? '' ),
+				'pid' => (string)( $row['PID'] ?? '' ),
+				'mode' => $mode,
+				'cpu' => (string)( $row['CPU'] ?? '' ),
+				'ss' => (string)( $row['SS'] ?? '' ),
+				'req' => (string)( $row['Req'] ?? '' ),
+				'client' => (string)( $row['Client'] ?? '' ),
+				'protocol' => (string)( $row['Protocol'] ?? '' ),
+				'vhost' => (string)( $row['VHost'] ?? '' ),
+				'request' => $requestParts['display'],
+				'requestMethod' => $requestParts['method'],
+				'requestTarget' => $requestParts['target'],
+				'requestPath' => $requestParts['path'],
+			];
+		}
+
+		return $workers;
+	}
+
+	private function parseApacheRequestLine( string $request ): array {
+		$request = trim( preg_replace( '/\\s+/u', ' ', $request ) );
+
+		if ( $request === '' ) {
+			return [
+				'display' => '(requête indisponible)',
+				'method' => '',
+				'target' => '',
+				'path' => '(indisponible)',
+			];
+		}
+
+		if ( preg_match( '/^([A-Z]+)\\s+(\\S+)(?:\\s+HTTP\\/[0-9.]+)?$/', $request, $matches ) ) {
+			$method = $matches[1];
+			$target = $this->sanitizeUrl( $matches[2] );
+			$urlParts = parse_url( $target );
+			$path = is_array( $urlParts ) ? (string)( $urlParts['path'] ?? '' ) : '';
+
+			return [
+				'display' => $this->truncateDiagnosticText( "$method $target", 600 ),
+				'method' => $method,
+				'target' => $target,
+				'path' => $path !== '' ? $path : '(chemin vide)',
+			];
+		}
+
+		return [
+			'display' => $this->truncateDiagnosticText( $request, 600 ),
+			'method' => '',
+			'target' => '',
+			'path' => $this->truncateDiagnosticText( $request, 200 ),
+		];
+	}
+
+	private function truncateDiagnosticText( string $text, int $maxLength ): string {
+		if ( $maxLength < 1 || strlen( $text ) <= $maxLength ) {
+			return $text;
+		}
+
+		if ( function_exists( 'mb_substr' ) ) {
+			return mb_substr( $text, 0, $maxLength - 1, 'UTF-8' ) . '…';
+		}
+
+		return substr( $text, 0, $maxLength - 3 ) . '...';
+	}
+
+	private function getActiveApacheWorkers( array $workers ): array {
+		$active = array_values( array_filter(
+			$workers,
+			static fn ( array $worker ): bool => !in_array(
+				$worker['mode'] ?? '',
+				[ '', '_', '.' ],
+				true
+			)
+		) );
+
+		usort( $active, static function ( array $a, array $b ): int {
+			$ssA = is_numeric( $a['ss'] ?? null ) ? (int)$a['ss'] : -1;
+			$ssB = is_numeric( $b['ss'] ?? null ) ? (int)$b['ss'] : -1;
+
+			if ( $ssA !== $ssB ) {
+				return $ssB <=> $ssA;
+			}
+
+			return strcmp( (string)( $a['srv'] ?? '' ), (string)( $b['srv'] ?? '' ) );
+		} );
+
+		return $active;
+	}
+
+	private function groupApacheActiveRequests( array $workers ): array {
+		$groups = [];
+
+		foreach ( $workers as $worker ) {
+			$vhost = trim( (string)( $worker['vhost'] ?? '' ) );
+			$path = trim( (string)( $worker['requestPath'] ?? '' ) );
+			$method = trim( (string)( $worker['requestMethod'] ?? '' ) );
+			$vhost = $vhost !== '' ? $vhost : '(vhost indisponible)';
+			$path = $path !== '' ? $path : '(requête indisponible)';
+			$wiki = $this->apacheVhostToWikiLabel( $vhost );
+			$key = sha1( $vhost . "\n" . $method . "\n" . $path );
+
+			if ( !isset( $groups[$key] ) ) {
+				$groups[$key] = [
+					'count' => 0,
+					'vhost' => $vhost,
+					'wiki' => $wiki,
+					'method' => $method,
+					'path' => $path,
+					'modes' => [],
+					'clients' => [],
+					'example' => (string)( $worker['request'] ?? '' ),
+				];
+			}
+
+			$groups[$key]['count']++;
+			$mode = (string)( $worker['mode'] ?? '' );
+			$client = (string)( $worker['client'] ?? '' );
+
+			if ( $mode !== '' ) {
+				$groups[$key]['modes'][$mode] = ( $groups[$key]['modes'][$mode] ?? 0 ) + 1;
+			}
+
+			if ( $client !== '' ) {
+				$groups[$key]['clients'][$client] = true;
+			}
+		}
+
+		$groups = array_values( $groups );
+		usort( $groups, static function ( array $a, array $b ): int {
+			if ( $a['count'] !== $b['count'] ) {
+				return $b['count'] <=> $a['count'];
+			}
+
+			return strcmp( $a['vhost'] . $a['path'], $b['vhost'] . $b['path'] );
+		} );
+
+		return $groups;
+	}
+
+
+	private function apacheVhostToWikiLabel( string $vhost ): string {
+		$host = strtolower( $vhost );
+
+		if ( str_contains( $host, 'militotheque.org' ) ) {
+			return 'MILITOTHÈQUE';
+		}
+
+		foreach ( [
+			'fr.wikidebates.org' => 'FR',
+			'en.wikidebates.org' => 'EN',
+			'de.wikidebates.org' => 'DE',
+			'es.wikidebates.org' => 'ES',
+			'it.wikidebates.org' => 'IT',
+			'pt.wikidebates.org' => 'PT',
+			'dev.wikidebates.org' => 'DEV',
+			'farm.wikidebates.org' => 'FARM',
+		] as $domain => $wiki ) {
+			if ( str_contains( $host, $domain ) ) {
+				return $wiki;
+			}
+		}
+
+		return '?';
+	}
+
 	private function parsePhpFpmStatus( string $raw ): array {
 		if ( $raw === '' ) {
 			return [];
@@ -635,6 +897,7 @@ class ServerHealthMail extends Maintenance {
 				'ordinaryPageRequests' => 0,
 				'ordinaryPageIps' => [],
 				'ordinaryPageIpRequestCounts' => [],
+				'ordinaryPageIpSecondCounts' => [],
 				'ordinaryPageSecondCounts' => [],
 				'ordinaryPageSecondIps' => [],
 				'ordinaryPageUaRefGroups' => [],
@@ -658,6 +921,14 @@ class ServerHealthMail extends Maintenance {
 				'suspiciousRequests' => 0,
 				'allIps' => [],
 				'ipRequestCounts' => [],
+				'allSecondCounts' => [],
+				'allSecondIps' => [],
+				'trafficBucketCounts' => [],
+				'trafficBucketIps' => [],
+				'trafficBucketSecondCounts' => [],
+				'trafficBucketSecondIps' => [],
+				'statusSecondCounts' => [],
+				'statusSecondIps' => [],
 				'methods' => [],
 				'statuses' => [],
 				'allUa' => [],
@@ -717,6 +988,21 @@ class ServerHealthMail extends Maintenance {
 					$safeUrl,
 					$safeReferrer
 				);
+				$second = $parsed['time']->getTimestamp();
+				$trafficBucket = $this->classifyTrafficBucket( $parsed['url'] );
+
+				$result[$wiki]['allSecondCounts'][$second] =
+					( $result[$wiki]['allSecondCounts'][$second] ?? 0 ) + 1;
+				$result[$wiki]['allSecondIps'][$second][$parsed['ip']] = true;
+				$result[$wiki]['trafficBucketCounts'][$trafficBucket] =
+					( $result[$wiki]['trafficBucketCounts'][$trafficBucket] ?? 0 ) + 1;
+				$result[$wiki]['trafficBucketIps'][$trafficBucket][$parsed['ip']] = true;
+				$result[$wiki]['trafficBucketSecondCounts'][$trafficBucket][$second] =
+					( $result[$wiki]['trafficBucketSecondCounts'][$trafficBucket][$second] ?? 0 ) + 1;
+				$result[$wiki]['trafficBucketSecondIps'][$trafficBucket][$second][$parsed['ip']] = true;
+				$result[$wiki]['statusSecondCounts'][$status][$second] =
+					( $result[$wiki]['statusSecondCounts'][$status][$second] ?? 0 ) + 1;
+				$result[$wiki]['statusSecondIps'][$status][$second][$parsed['ip']] = true;
 
 				$result[$wiki]['methods'][$method] = ( $result[$wiki]['methods'][$method] ?? 0 ) + 1;
 				$result[$wiki]['statuses'][$status] = ( $result[$wiki]['statuses'][$status] ?? 0 ) + 1;
@@ -803,8 +1089,9 @@ class ServerHealthMail extends Maintenance {
 					$result[$wiki]['ordinaryPageIps'][$parsed['ip']] = true;
 					$result[$wiki]['ordinaryPageIpRequestCounts'][$parsed['ip']] =
 						( $result[$wiki]['ordinaryPageIpRequestCounts'][$parsed['ip']] ?? 0 ) + 1;
+					$result[$wiki]['ordinaryPageIpSecondCounts'][$parsed['ip']][$second] =
+						( $result[$wiki]['ordinaryPageIpSecondCounts'][$parsed['ip']][$second] ?? 0 ) + 1;
 
-					$second = $parsed['time']->getTimestamp();
 					$result[$wiki]['ordinaryPageSecondCounts'][$second] =
 						( $result[$wiki]['ordinaryPageSecondCounts'][$second] ?? 0 ) + 1;
 					$result[$wiki]['ordinaryPageSecondIps'][$second][$parsed['ip']] = true;
@@ -1106,6 +1393,68 @@ class ServerHealthMail extends Maintenance {
 		];
 	}
 
+
+	private function classifyTrafficBucket( string $url ): string {
+		$parsed = parse_url( $url );
+
+		if ( $parsed === false ) {
+			return 'other';
+		}
+
+		$path = strtolower( (string)( $parsed['path'] ?? '' ) );
+		$query = (string)( $parsed['query'] ?? '' );
+		$args = [];
+
+		if ( $query !== '' ) {
+			parse_str( $query, $args );
+		}
+
+		if ( $this->isSpecialPath( $path ) || $this->isSpecialTitleArgument( $args ) ) {
+			return 'special';
+		}
+
+		if ( str_starts_with( $path, '/wiki/' ) ) {
+			return 'ordinary-wiki';
+		}
+
+		if ( $path === '/w/index.php' ) {
+			return 'index';
+		}
+
+		if ( $path === '/w/api.php' ) {
+			return 'api';
+		}
+
+		if ( $path === '/w/load.php' ) {
+			return 'load';
+		}
+
+		if ( str_starts_with( $path, '/w/images/' ) ) {
+			return 'images';
+		}
+
+		if ( str_starts_with( $path, '/w/resources/' ) ) {
+			return 'resources';
+		}
+
+		return 'other';
+	}
+
+	private function trafficBucketLabel( string $bucket ): string {
+		$labels = [
+			'ordinary-wiki' => '/wiki/ hors pages spéciales',
+			'special' => 'pages spéciales',
+			'index' => '/w/index.php',
+			'api' => '/w/api.php',
+			'load' => '/w/load.php',
+			'images' => '/w/images/',
+			'resources' => '/w/resources/',
+			'other' => 'autres chemins / statiques',
+		];
+
+		return $labels[$bucket] ?? $bucket;
+	}
+
 	private function isSpecialPath( string $path ): bool {
 		$markers = [
 			'/wiki/special:',
@@ -1288,6 +1637,113 @@ class ServerHealthMail extends Maintenance {
 		];
 	}
 
+	private function getSingleIpWindowPeak( array $secondCounts, int $windowSeconds ): array {
+		if ( !$secondCounts || $windowSeconds < 1 ) {
+			return [
+				'requests' => 0,
+				'start' => null,
+			];
+		}
+
+		ksort( $secondCounts, SORT_NUMERIC );
+		$seconds = array_keys( $secondCounts );
+		$left = 0;
+		$currentRequests = 0;
+		$bestRequests = 0;
+		$bestStart = null;
+
+		foreach ( $seconds as $right => $second ) {
+			$currentRequests += (int)$secondCounts[$second];
+
+			while (
+				$left <= $right
+				&& $second - $seconds[$left] >= $windowSeconds
+			) {
+				$currentRequests -= (int)$secondCounts[$seconds[$left]];
+				$left++;
+			}
+
+			if ( $currentRequests > $bestRequests ) {
+				$bestRequests = $currentRequests;
+				$bestStart = $seconds[$left] ?? $second;
+			}
+		}
+
+		return [
+			'requests' => $bestRequests,
+			'start' => $bestStart,
+		];
+	}
+
+	private function getOrdinaryIpTemporalDetails(
+		array $data,
+		array $candidateIpCounts,
+		int $limit = self::MAX_TOP_ORDINARY_IP_TEMPORAL
+	): array {
+		if ( !$candidateIpCounts || $limit < 1 ) {
+			return [];
+		}
+
+		arsort( $candidateIpCounts, SORT_NUMERIC );
+		$details = [];
+
+		foreach ( $candidateIpCounts as $ip => $count ) {
+			$perSecond = $data['ordinaryPageIpSecondCounts'][$ip] ?? [];
+			$details[] = [
+				'ip' => $ip,
+				'requests' => (int)$count,
+				'peak1' => $this->getSingleIpWindowPeak( $perSecond, 1 ),
+				'peak5' => $this->getSingleIpWindowPeak( $perSecond, 5 ),
+				'peak10' => $this->getSingleIpWindowPeak( $perSecond, 10 ),
+			];
+
+			if ( count( $details ) >= $limit ) {
+				break;
+			}
+		}
+
+		return $details;
+	}
+
+	private function getOrdinaryIpTenSecondThresholdCounts( array $data ): array {
+		$counts = [
+			'over5' => 0,
+			'over8' => 0,
+			'over10' => 0,
+		];
+
+		foreach ( $data['ordinaryPageIpSecondCounts'] ?? [] as $secondCounts ) {
+			$peak = $this->getSingleIpWindowPeak( $secondCounts, 10 );
+			$requests = (int)$peak['requests'];
+
+			if ( $requests > 5 ) {
+				$counts['over5']++;
+			}
+
+			if ( $requests > 8 ) {
+				$counts['over8']++;
+			}
+
+			if ( $requests > 10 ) {
+				$counts['over10']++;
+			}
+		}
+
+		return $counts;
+	}
+
+	private function formatSingleIpPeak( array $peak ): string {
+		$line = (string)( $peak['requests'] ?? 0 ) . ' requête(s)';
+
+		if ( isset( $peak['start'] ) && $peak['start'] !== null ) {
+			$time = ( new DateTimeImmutable( '@' . $peak['start'] ) )
+				->setTimezone( new DateTimeZone( 'Europe/Paris' ) );
+			$line .= ' | début ' . $time->format( 'H:i:s T' );
+		}
+
+		return $line;
+	}
+
 	private function getTopOrdinaryUaRefGroup( array $groups ): ?array {
 		if ( !$groups ) {
 			return null;
@@ -1306,8 +1762,11 @@ class ServerHealthMail extends Maintenance {
 		return is_array( $top ) ? $top : null;
 	}
 
-	private function detectCrawlerIssues( array $logs ): array {
+	private function detectCrawlerIssues( array $logs, bool $serverPressure ): array {
 		$issues = [];
+		$declaredBotOrdinaryThreshold = $serverPressure
+			? self::DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD_WITH_PRESSURE
+			: self::DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD_WITHOUT_PRESSURE;
 
 		foreach ( $logs as $wiki => $data ) {
 			$wikiSuspiciousIps = count( $data['suspiciousIps'] );
@@ -1395,6 +1854,11 @@ class ServerHealthMail extends Maintenance {
 				$heavyOrdinaryRequests >= self::ORDINARY_PAGE_CONCENTRATED_REQUEST_THRESHOLD
 				&& $heavyOrdinaryShare >= self::ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD
 			);
+			$ordinaryIpTenSecondThresholdCounts = $this->getOrdinaryIpTenSecondThresholdCounts( $data );
+			$heavyOrdinaryIpTemporalDetails = $this->getOrdinaryIpTemporalDetails(
+				$data,
+				$heavyOrdinaryIpCounts
+			);
 
 			if ( $isWikiOrdinaryDistributed ) {
 				$issues[] = [
@@ -1425,7 +1889,7 @@ class ServerHealthMail extends Maintenance {
 			}
 
 			foreach ( $data['ordinaryPageDeclaredBotUa'] as $ua => $stats ) {
-				if ( $stats['requests'] < self::DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD ) {
+				if ( $stats['requests'] < $declaredBotOrdinaryThreshold ) {
 					continue;
 				}
 
@@ -1464,6 +1928,8 @@ class ServerHealthMail extends Maintenance {
 					'peak5' => $ordinaryPeak5,
 					'peak10' => $ordinaryPeak10,
 					'topUaRefGroup' => $topOrdinaryUaRefGroup,
+					'ordinaryIpTenSecondThresholdCounts' => $ordinaryIpTenSecondThresholdCounts,
+					'heavyOrdinaryIpTemporalDetails' => $heavyOrdinaryIpTemporalDetails,
 					'logLines' => array_slice(
 						$data['recentOrdinaryPageLines'],
 						0,
@@ -1779,6 +2245,25 @@ class ServerHealthMail extends Maintenance {
 				$body .= number_format( $issue['requestsPerIp'], 1, ',', '' ) . "\n";
 			}
 
+			if ( isset( $issue['ordinaryIpTenSecondThresholdCounts'] ) ) {
+				$thresholdCounts = $issue['ordinaryIpTenSecondThresholdCounts'];
+				$body .= "\tIP dépassant 5 / 8 / 10 pages ordinaires sur 10 s : ";
+				$body .= (int)( $thresholdCounts['over5'] ?? 0 ) . ' / ';
+				$body .= (int)( $thresholdCounts['over8'] ?? 0 ) . ' / ';
+				$body .= (int)( $thresholdCounts['over10'] ?? 0 ) . "\n";
+			}
+
+			if ( !empty( $issue['heavyOrdinaryIpTemporalDetails'] ) ) {
+				$body .= "\tRythme individuel des IP très actives :\n";
+
+				foreach ( $issue['heavyOrdinaryIpTemporalDetails'] as $detail ) {
+					$body .= "\t\t{$detail['ip']} : {$detail['requests']} pages ordinaires\n";
+					$body .= "\t\t\tPic 1 s : " . $this->formatSingleIpPeak( $detail['peak1'] ) . "\n";
+					$body .= "\t\t\tPic 5 s : " . $this->formatSingleIpPeak( $detail['peak5'] ) . "\n";
+					$body .= "\t\t\tPic 10 s : " . $this->formatSingleIpPeak( $detail['peak10'] ) . "\n";
+				}
+			}
+
 			if ( isset( $issue['dynamic'] ) ) {
 				$body .= "\tRequêtes dynamiques : {$issue['dynamic']}\n";
 			}
@@ -1873,6 +2358,57 @@ class ServerHealthMail extends Maintenance {
 
 		$body .= 'États OS des processus Apache : ';
 		$body .= $this->formatCountMap( $snapshot['apacheProcessStates'] ?? [] ) . "\n";
+
+		$scoreboardStates = $snapshot['apacheScoreboardStates'] ?? [];
+
+		if ( $scoreboardStates ) {
+			$body .= 'Scoreboard mod_status : ' . $this->formatCountMap( $scoreboardStates ) . "\n";
+			$body .= "Légende scoreboard : _=attente, S=démarrage, R=lecture, W=réponse, K=keep-alive, ";
+			$body .= "D=DNS, C=fermeture, L=journalisation, G=fin gracieuse, I=nettoyage, .=slot libre\n";
+		}
+
+		$activeWorkerCount = (int)( $snapshot['apacheActiveWorkerCount'] ?? 0 );
+		$activeWorkers = $snapshot['apacheActiveWorkers'] ?? [];
+		$activeGroups = $snapshot['apacheActiveRequestGroups'] ?? [];
+
+		if ( $activeWorkerCount > 0 ) {
+			$body .= "Workers Apache actifs observés dans la table mod_status : $activeWorkerCount\n";
+		}
+
+		if ( $activeGroups ) {
+			$body .= "Requêtes Apache en cours — regroupées par vhost et chemin :\n";
+
+			foreach ( $activeGroups as $group ) {
+				$modes = $this->formatCountMap( $group['modes'] ?? [] );
+				$clientCount = count( $group['clients'] ?? [] );
+				$method = $group['method'] !== '' ? $group['method'] . ' ' : '';
+				$body .= "\t{$group['count']} worker(s) | wiki={$group['wiki']} | {$group['vhost']} | ";
+				$body .= $method . $group['path'];
+				$body .= " | modes=$modes | clients=$clientCount\n";
+			}
+		}
+
+		if ( $activeWorkers ) {
+			$body .= "Échantillon des workers Apache actifs (triés par SS décroissant) :\n";
+
+			foreach ( $activeWorkers as $worker ) {
+				$workerWiki = $this->apacheVhostToWikiLabel( (string)$worker['vhost'] );
+				$body .= "\tM={$worker['mode']}";
+				$body .= " | Srv={$worker['srv']} | PID={$worker['pid']}";
+				$body .= " | SS={$worker['ss']} | Req={$worker['req']}";
+				$body .= " | client={$worker['client']} | wiki=$workerWiki | vhost={$worker['vhost']}";
+				$body .= " | {$worker['request']}\n";
+			}
+
+			if ( $activeWorkerCount > count( $activeWorkers ) ) {
+				$body .= "\t… " . ( $activeWorkerCount - count( $activeWorkers ) );
+				$body .= " worker(s) actif(s) supplémentaire(s) non affiché(s)\n";
+			}
+		} elseif ( !empty( $snapshot['apacheWorkerTableAvailable'] ) ) {
+			$body .= "Table détaillée des workers Apache : aucune ligne active exploitable.\n";
+		} else {
+			$body .= "Table détaillée des workers Apache : indisponible.\n";
+		}
 
 		$body .= "\nPHP-FPM webmaster_php\n";
 		$body .= "---------------------\n\n";
@@ -2070,6 +2606,7 @@ class ServerHealthMail extends Maintenance {
 			$body .= "\n";
 		}
 
+		$body .= $this->buildAllRequestTemporalDiagnostics( $data );
 		$body .= $this->buildTopAllUserAgents( $data );
 		$body .= $this->buildTopPaths( $data );
 		$body .= $this->buildTopIps( $data );
@@ -2078,6 +2615,112 @@ class ServerHealthMail extends Maintenance {
 		$body .= $this->buildApiPostDiagnostics( $data );
 
 		return $body;
+	}
+
+
+	private function buildAllRequestTemporalDiagnostics( array $data ): string {
+		$body = "Activité temporelle — toutes les requêtes\n";
+		$body .= "------------------------------------------\n\n";
+		$allSecondCounts = $data['allSecondCounts'] ?? [];
+		$allSecondIps = $data['allSecondIps'] ?? [];
+
+		foreach ( [ 1, 5, 10 ] as $seconds ) {
+			$peak = $this->getOrdinaryPageWindowPeak( $allSecondCounts, $allSecondIps, $seconds );
+			$body .= $this->formatTemporalPeakLine( "Toutes requêtes — pic {$seconds} s", $peak );
+		}
+
+		$body .= "\nPar type de chemin\n";
+		$body .= "------------------\n\n";
+		$bucketOrder = [
+			'ordinary-wiki',
+			'special',
+			'index',
+			'api',
+			'load',
+			'images',
+			'resources',
+			'other',
+		];
+
+		foreach ( $bucketOrder as $bucket ) {
+			$total = (int)( $data['trafficBucketCounts'][$bucket] ?? 0 );
+			$ips = count( $data['trafficBucketIps'][$bucket] ?? [] );
+			$secondCounts = $data['trafficBucketSecondCounts'][$bucket] ?? [];
+			$secondIps = $data['trafficBucketSecondIps'][$bucket] ?? [];
+			$peak1 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 1 );
+			$peak5 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 5 );
+			$peak10 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 10 );
+			$body .= $this->trafficBucketLabel( $bucket ) . " : $total requête(s) | $ips IP";
+			$body .= " | pics 1s={$peak1['requests']}, 5s={$peak5['requests']}, 10s={$peak10['requests']}\n";
+		}
+
+		$body .= "\nPar code HTTP — pics temporels\n";
+		$body .= "------------------------------\n\n";
+
+		foreach ( [ '200', '304', '418' ] as $status ) {
+			$total = (int)( $data['statuses'][$status] ?? 0 );
+			$secondCounts = $data['statusSecondCounts'][$status] ?? [];
+			$secondIps = $data['statusSecondIps'][$status] ?? [];
+			$peak1 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 1 );
+			$peak5 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 5 );
+			$peak10 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 10 );
+			$body .= "HTTP $status : $total requête(s)";
+			$body .= " | pics 1s={$peak1['requests']}, 5s={$peak5['requests']}, 10s={$peak10['requests']}\n";
+		}
+
+		$body .= "\nSecondes les plus actives — tout le trafic\n";
+		$body .= "-----------------------------------------\n\n";
+		$topSeconds = $allSecondCounts;
+		arsort( $topSeconds, SORT_NUMERIC );
+		$shown = 0;
+
+		foreach ( $topSeconds as $second => $count ) {
+			$time = ( new DateTimeImmutable( '@' . $second ) )
+				->setTimezone( new DateTimeZone( 'Europe/Paris' ) );
+			$parts = [];
+
+			foreach ( $bucketOrder as $bucket ) {
+				$bucketCount = (int)( $data['trafficBucketSecondCounts'][$bucket][$second] ?? 0 );
+
+				if ( $bucketCount > 0 ) {
+					$parts[] = $this->trafficBucketLabel( $bucket ) . '=' . $bucketCount;
+				}
+			}
+
+			$body .= $time->format( 'H:i:s T' ) . " | $count requête(s)";
+			$body .= ' | ' . count( $allSecondIps[$second] ?? [] ) . ' IP';
+
+			if ( $parts ) {
+				$body .= ' | ' . implode( ', ', $parts );
+			}
+
+			$body .= "\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_TOP_ALL_REQUEST_SECONDS ) {
+				break;
+			}
+		}
+
+		if ( $shown === 0 ) {
+			$body .= "Aucune requête horodatée.\n";
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
+	private function formatTemporalPeakLine( string $label, array $peak ): string {
+		$line = "$label : {$peak['requests']} requête(s) | {$peak['ips']} IP";
+
+		if ( $peak['start'] !== null ) {
+			$time = ( new DateTimeImmutable( '@' . $peak['start'] ) )
+				->setTimezone( new DateTimeZone( 'Europe/Paris' ) );
+			$line .= ' | début ' . $time->format( 'H:i:s T' );
+		}
+
+		return $line . "\n";
 	}
 
 	private function buildTopAllUserAgents( array $data ): string {
@@ -2274,6 +2917,32 @@ class ServerHealthMail extends Maintenance {
 			}
 
 			$body .= "\n";
+		}
+
+		$thresholdCounts = $this->getOrdinaryIpTenSecondThresholdCounts( $data );
+		$body .= "IP dépassant 5 pages ordinaires sur 10 s : {$thresholdCounts['over5']}\n";
+		$body .= "IP dépassant 8 pages ordinaires sur 10 s : {$thresholdCounts['over8']}\n";
+		$body .= "IP dépassant 10 pages ordinaires sur 10 s : {$thresholdCounts['over10']}\n";
+
+		$individualIpCounts = array_filter(
+			$ipCounts,
+			static fn ( int $count ): bool => $count >= self::ORDINARY_IP_TEMPORAL_MIN_REQUESTS
+		);
+		$individualDetails = $this->getOrdinaryIpTemporalDetails( $data, $individualIpCounts );
+
+		$body .= "\nRythme individuel — IP actives sur pages ordinaires\n";
+		$body .= "---------------------------------------------------\n\n";
+
+		foreach ( $individualDetails as $detail ) {
+			$body .= "{$detail['requests']} page(s) | {$detail['ip']}\n";
+			$body .= "\tPic 1 s : " . $this->formatSingleIpPeak( $detail['peak1'] ) . "\n";
+			$body .= "\tPic 5 s : " . $this->formatSingleIpPeak( $detail['peak5'] ) . "\n";
+			$body .= "\tPic 10 s : " . $this->formatSingleIpPeak( $detail['peak10'] ) . "\n";
+		}
+
+		if ( !$individualDetails ) {
+			$body .= "Aucune IP avec au moins " . self::ORDINARY_IP_TEMPORAL_MIN_REQUESTS;
+			$body .= " pages ordinaires dans la fenêtre.\n";
 		}
 
 		$body .= "\nUA se déclarant comme bots — pages ordinaires\n";
