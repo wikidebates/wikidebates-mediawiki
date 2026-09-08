@@ -66,6 +66,13 @@ class ServerHealthMail extends Maintenance {
 	private const ORDINARY_PAGE_HEAVY_IP_REQUEST_THRESHOLD = 80;
 	private const ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD = 0.70;
 
+	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITH_PRESSURE = 5;
+	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITHOUT_PRESSURE = 25;
+	private const BOT_IDENTITY_ROTATION_TOTAL_REQUEST_THRESHOLD_WITH_PRESSURE = 50;
+	private const BOT_IDENTITY_ROTATION_TOTAL_REQUEST_THRESHOLD_WITHOUT_PRESSURE = 150;
+	private const BOT_IDENTITY_ROTATION_DECLARED_REQUEST_THRESHOLD = 20;
+	private const BOT_IDENTITY_ROTATION_DECLARED_UA_THRESHOLD = 5;
+
 	private const INTERNAL_BOT_UA_PREFIX = 'ChatGPT/wikidebia_update';
 	private const INTERNAL_BOT_IPS = [
 		'2a01:4f9:6b:29e3::2',
@@ -93,6 +100,10 @@ class ServerHealthMail extends Maintenance {
 	private const MAX_APACHE_ACTIVE_WORKERS = 30;
 	private const MAX_APACHE_ACTIVE_REQUEST_GROUPS = 15;
 	private const MAX_TOP_ALL_REQUEST_SECONDS = 10;
+	private const MAX_SECURITY_IP_ISSUES = 5;
+	private const MAX_SECURITY_SCAN_LINES = 40;
+	private const MAX_SECURITY_SCAN_TYPES = 10;
+	private const MAX_SECURITY_ROTATION_UAS = 10;
 
 	private const STATE_FILE = '/home/users/webmaster/.cache/wikidebates-server-health.json';
 
@@ -921,6 +932,18 @@ class ServerHealthMail extends Maintenance {
 				'suspiciousRequests' => 0,
 				'allIps' => [],
 				'ipRequestCounts' => [],
+				'ipSecondCounts' => [],
+				'ipUaRequestCounts' => [],
+				'ipDeclaredBotRequests' => [],
+				'ipDeclaredBotUaRequestCounts' => [],
+				'securityScanRequests' => 0,
+				'securityScanIps' => [],
+				'securityScanIpRequestCounts' => [],
+				'securityScanIpTypes' => [],
+				'securityScanIpLines' => [],
+				'securityScanTypes' => [],
+				'securityScanTypeIps' => [],
+				'recentSecurityScanLines' => [],
 				'allSecondCounts' => [],
 				'allSecondIps' => [],
 				'trafficBucketCounts' => [],
@@ -990,6 +1013,18 @@ class ServerHealthMail extends Maintenance {
 				);
 				$second = $parsed['time']->getTimestamp();
 				$trafficBucket = $this->classifyTrafficBucket( $parsed['url'] );
+
+				$result[$wiki]['ipSecondCounts'][$parsed['ip']][$second] =
+					( $result[$wiki]['ipSecondCounts'][$parsed['ip']][$second] ?? 0 ) + 1;
+				$result[$wiki]['ipUaRequestCounts'][$parsed['ip']][$ua] =
+					( $result[$wiki]['ipUaRequestCounts'][$parsed['ip']][$ua] ?? 0 ) + 1;
+
+				if ( $this->isSelfDeclaredBotUserAgent( $ua ) ) {
+					$result[$wiki]['ipDeclaredBotRequests'][$parsed['ip']] =
+						( $result[$wiki]['ipDeclaredBotRequests'][$parsed['ip']] ?? 0 ) + 1;
+					$result[$wiki]['ipDeclaredBotUaRequestCounts'][$parsed['ip']][$ua] =
+						( $result[$wiki]['ipDeclaredBotUaRequestCounts'][$parsed['ip']][$ua] ?? 0 ) + 1;
+				}
 
 				$result[$wiki]['allSecondCounts'][$second] =
 					( $result[$wiki]['allSecondCounts'][$second] ?? 0 ) + 1;
@@ -1077,6 +1112,36 @@ class ServerHealthMail extends Maintenance {
 				}
 
 				$class = $this->classifyRequest( $parsed['url'] );
+
+				if ( $class['suspicious'] ) {
+					$result[$wiki]['suspiciousRequests']++;
+					$result[$wiki]['suspiciousIps'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['recentSuspiciousLines'] ) < self::MAX_RECENT_SUSPICIOUS_LINES ) {
+						$result[$wiki]['recentSuspiciousLines'][] = $formattedLine;
+					}
+				}
+
+				if ( $class['scanType'] !== null ) {
+					$scanType = $class['scanType'];
+					$result[$wiki]['securityScanRequests']++;
+					$result[$wiki]['securityScanIps'][$parsed['ip']] = true;
+					$result[$wiki]['securityScanIpRequestCounts'][$parsed['ip']] =
+						( $result[$wiki]['securityScanIpRequestCounts'][$parsed['ip']] ?? 0 ) + 1;
+					$result[$wiki]['securityScanIpTypes'][$parsed['ip']][$scanType] =
+						( $result[$wiki]['securityScanIpTypes'][$parsed['ip']][$scanType] ?? 0 ) + 1;
+					$result[$wiki]['securityScanTypes'][$scanType] =
+						( $result[$wiki]['securityScanTypes'][$scanType] ?? 0 ) + 1;
+					$result[$wiki]['securityScanTypeIps'][$scanType][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['securityScanIpLines'][$parsed['ip']] ?? [] ) < self::MAX_SECURITY_SCAN_LINES ) {
+						$result[$wiki]['securityScanIpLines'][$parsed['ip']][] = $formattedLine;
+					}
+
+					if ( count( $result[$wiki]['recentSecurityScanLines'] ) < self::MAX_SECURITY_SCAN_LINES ) {
+						$result[$wiki]['recentSecurityScanLines'][] = $formattedLine;
+					}
+				}
 
 				if ( !$class['pageLike'] ) {
 					continue;
@@ -1179,15 +1244,6 @@ class ServerHealthMail extends Maintenance {
 
 					if ( count( $result[$wiki]['recentDynamicLines'] ) < self::MAX_RECENT_DYNAMIC_LINES ) {
 						$result[$wiki]['recentDynamicLines'][] = $formattedLine;
-					}
-				}
-
-				if ( $class['suspicious'] ) {
-					$result[$wiki]['suspiciousRequests']++;
-					$result[$wiki]['suspiciousIps'][$parsed['ip']] = true;
-
-					if ( count( $result[$wiki]['recentSuspiciousLines'] ) < self::MAX_RECENT_SUSPICIOUS_LINES ) {
-						$result[$wiki]['recentSuspiciousLines'][] = $formattedLine;
 					}
 				}
 
@@ -1310,6 +1366,94 @@ class ServerHealthMail extends Maintenance {
 		return false;
 	}
 
+	private function classifyVulnerabilityScanPath( string $path ): ?string {
+		$decodedPath = strtolower( rawurldecode( $path ) );
+
+		if ( $decodedPath === '' ) {
+			return null;
+		}
+
+		if ( str_starts_with( $decodedPath, '/@fs/' ) ) {
+			return 'Exposition de système de fichiers / @fs';
+		}
+
+		if (
+			str_starts_with( $decodedPath, '/wiki/' )
+			|| str_starts_with( $decodedPath, '/w/images/' )
+			|| str_starts_with( $decodedPath, '/w/resources/' )
+		) {
+			return null;
+		}
+
+		foreach ( [ '/proc/self/environ', '/proc/1/environ', '/etc/passwd', '/etc/shadow' ] as $marker ) {
+			if ( str_contains( $decodedPath, $marker ) ) {
+				return 'Fichiers système / variables d’environnement';
+			}
+		}
+
+		$secretMarkers = [
+			'/.config/gcloud/application_default_credentials.json',
+			'/.aws/credentials',
+			'/.azure/accesstokens.json',
+			'/.s3cfg',
+			'/.boto',
+			'/.docker/config.json',
+			'/.npmrc',
+			'/.pypirc',
+			'/.netrc',
+			'/application_default_credentials.json',
+			'/service-account.json',
+			'/service_account.json',
+		];
+
+		foreach ( $secretMarkers as $marker ) {
+			if ( str_contains( $decodedPath, $marker ) ) {
+				return 'Identifiants cloud / fichiers de secrets';
+			}
+		}
+
+		foreach ( [ '/.git/', '/.svn/', '/.hg/', '/.ssh/' ] as $marker ) {
+			if ( str_contains( $decodedPath, $marker ) ) {
+				return 'Dépôts ou répertoires cachés sensibles';
+			}
+		}
+
+		$basename = basename( $decodedPath );
+		$sensitiveConfigNames = [
+			'.env',
+			'.env.local',
+			'.env.production',
+			'.env.development',
+			'config.yaml',
+			'config.yml',
+			'settings.py',
+			'local_settings.py',
+			'application.properties',
+			'application.yml',
+			'application.yaml',
+			'wp-config.php',
+			'configuration.php',
+			'database.yml',
+			'secrets.yml',
+			'secrets.yaml',
+		];
+
+		if ( in_array( $basename, $sensitiveConfigNames, true ) ) {
+			return 'Fichiers de configuration applicative';
+		}
+
+		if (
+			preg_match(
+				'~/(?:config|configs|backend|app|src)/[^/]*(?:config|settings|secret|credential|storage)[^/]*\.(?:ya?ml|json|ini|conf|properties|py)$~',
+				$decodedPath
+			)
+		) {
+			return 'Fichiers de configuration applicative';
+		}
+
+		return null;
+	}
+
 	private function classifyRequest( string $url ): array {
 		$parsed = parse_url( $url );
 
@@ -1319,11 +1463,13 @@ class ServerHealthMail extends Maintenance {
 				'ordinary' => false,
 				'dynamic' => false,
 				'suspicious' => false,
+				'scanType' => null,
 			];
 		}
 
 		$path = strtolower( $parsed['path'] ?? '' );
 		$query = $parsed['query'] ?? '';
+		$scanType = $this->classifyVulnerabilityScanPath( $path );
 
 		parse_str( $query, $args );
 
@@ -1356,7 +1502,7 @@ class ServerHealthMail extends Maintenance {
 			|| $isSpecial
 		);
 
-		$suspicious = false;
+		$suspicious = $scanType !== null;
 
 		if ( $path === '/w/index.php' ) {
 			if (
@@ -1390,6 +1536,7 @@ class ServerHealthMail extends Maintenance {
 			'ordinary' => $ordinary,
 			'dynamic' => $dynamic,
 			'suspicious' => $suspicious,
+			'scanType' => $scanType,
 		];
 	}
 
@@ -1762,6 +1909,103 @@ class ServerHealthMail extends Maintenance {
 		return is_array( $top ) ? $top : null;
 	}
 
+	private function detectSecurityIpIssues( string $wiki, array $data, bool $serverPressure ): array {
+		$scanThreshold = $serverPressure
+			? self::SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITH_PRESSURE
+			: self::SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITHOUT_PRESSURE;
+		$rotationTotalThreshold = $serverPressure
+			? self::BOT_IDENTITY_ROTATION_TOTAL_REQUEST_THRESHOLD_WITH_PRESSURE
+			: self::BOT_IDENTITY_ROTATION_TOTAL_REQUEST_THRESHOLD_WITHOUT_PRESSURE;
+		$candidateIps = [];
+
+		foreach ( $data['securityScanIpRequestCounts'] ?? [] as $ip => $_ ) {
+			$candidateIps[$ip] = true;
+		}
+
+		foreach ( $data['ipDeclaredBotUaRequestCounts'] ?? [] as $ip => $_ ) {
+			$candidateIps[$ip] = true;
+		}
+
+		$issues = [];
+
+		foreach ( array_keys( $candidateIps ) as $ip ) {
+			$scanRequests = (int)( $data['securityScanIpRequestCounts'][$ip] ?? 0 );
+			$totalRequests = (int)( $data['ipRequestCounts'][$ip] ?? 0 );
+			$declaredBotRequests = (int)( $data['ipDeclaredBotRequests'][$ip] ?? 0 );
+			$declaredBotUas = $data['ipDeclaredBotUaRequestCounts'][$ip] ?? [];
+			$declaredBotUaCount = count( $declaredBotUas );
+			$distinctUserAgents = count( $data['ipUaRequestCounts'][$ip] ?? [] );
+			$qualifiesScan = $scanRequests >= $scanThreshold;
+			$qualifiesRotation = (
+				$totalRequests >= $rotationTotalThreshold
+				&& $declaredBotRequests >= self::BOT_IDENTITY_ROTATION_DECLARED_REQUEST_THRESHOLD
+				&& $declaredBotUaCount >= self::BOT_IDENTITY_ROTATION_DECLARED_UA_THRESHOLD
+			);
+
+			if ( !$qualifiesScan && !$qualifiesRotation ) {
+				continue;
+			}
+
+			if ( $qualifiesScan && $qualifiesRotation ) {
+				$type = 'security-scan-bot-rotation';
+				$label = 'Scanner de vulnérabilités avec rotation d’identités de bots';
+			} elseif ( $qualifiesScan ) {
+				$type = 'security-scan';
+				$label = 'Scan de vulnérabilités / recherche de secrets';
+			} else {
+				$type = 'bot-identity-rotation';
+				$label = 'Rotation anormale d’identités de bots depuis une même IP';
+			}
+
+			$scanTypes = $data['securityScanIpTypes'][$ip] ?? [];
+			arsort( $scanTypes, SORT_NUMERIC );
+			$declaredBotUaExamples = $declaredBotUas;
+			arsort( $declaredBotUaExamples, SORT_NUMERIC );
+			$declaredBotUaExamples = array_slice(
+				$declaredBotUaExamples,
+				0,
+				self::MAX_SECURITY_ROTATION_UAS,
+				true
+			);
+			$perSecond = $data['ipSecondCounts'][$ip] ?? [];
+
+			$issues[] = [
+				'type' => $type,
+				'label' => $label,
+				'wiki' => $wiki,
+				'sourceIp' => $ip,
+				'totalRequestsFromIp' => $totalRequests,
+				'scanRequests' => $scanRequests,
+				'distinctUserAgents' => $distinctUserAgents,
+				'declaredBotRequests' => $declaredBotRequests,
+				'declaredBotUaCount' => $declaredBotUaCount,
+				'scanTypes' => array_slice( $scanTypes, 0, self::MAX_SECURITY_SCAN_TYPES, true ),
+				'declaredBotUaExamples' => $declaredBotUaExamples,
+				'ipPeak1' => $this->getSingleIpWindowPeak( $perSecond, 1 ),
+				'ipPeak5' => $this->getSingleIpWindowPeak( $perSecond, 5 ),
+				'ipPeak10' => $this->getSingleIpWindowPeak( $perSecond, 10 ),
+				'logLines' => array_slice(
+					$data['securityScanIpLines'][$ip] ?? [],
+					0,
+					self::MAX_MAIL_LINES_PER_WIKI
+				),
+				'_score' => max( $scanRequests * 10, $totalRequests ),
+			];
+		}
+
+		usort( $issues, static function ( array $a, array $b ): int {
+			return ( $b['_score'] ?? 0 ) <=> ( $a['_score'] ?? 0 );
+		} );
+		$issues = array_slice( $issues, 0, self::MAX_SECURITY_IP_ISSUES );
+
+		foreach ( $issues as &$issue ) {
+			unset( $issue['_score'] );
+		}
+		unset( $issue );
+
+		return $issues;
+	}
+
 	private function detectCrawlerIssues( array $logs, bool $serverPressure ): array {
 		$issues = [];
 		$declaredBotOrdinaryThreshold = $serverPressure
@@ -1769,6 +2013,10 @@ class ServerHealthMail extends Maintenance {
 			: self::DECLARED_BOT_ORDINARY_REQUEST_THRESHOLD_WITHOUT_PRESSURE;
 
 		foreach ( $logs as $wiki => $data ) {
+			foreach ( $this->detectSecurityIpIssues( $wiki, $data, $serverPressure ) as $securityIssue ) {
+				$issues[] = $securityIssue;
+			}
+
 			$wikiSuspiciousIps = count( $data['suspiciousIps'] );
 			$wikiDynamicIps = count( $data['dynamicIps'] );
 			$ordinaryPageIps = count( $data['ordinaryPageIps'] );
@@ -2063,6 +2311,7 @@ class ServerHealthMail extends Maintenance {
 				'type' => $issue['type'] ?? '',
 				'wiki' => $issue['wiki'] ?? '',
 				'ua' => $issue['ua'] ?? '',
+				'sourceIp' => $issue['sourceIp'] ?? '',
 			];
 		}
 
@@ -2262,6 +2511,55 @@ class ServerHealthMail extends Maintenance {
 					$body .= "\t\t\tPic 5 s : " . $this->formatSingleIpPeak( $detail['peak5'] ) . "\n";
 					$body .= "\t\t\tPic 10 s : " . $this->formatSingleIpPeak( $detail['peak10'] ) . "\n";
 				}
+			}
+
+			if ( isset( $issue['sourceIp'] ) ) {
+				$body .= "\tIP source : {$issue['sourceIp']}\n";
+			}
+
+			if ( isset( $issue['totalRequestsFromIp'] ) ) {
+				$body .= "\tRequêtes totales depuis cette IP : {$issue['totalRequestsFromIp']}\n";
+			}
+
+			if ( isset( $issue['scanRequests'] ) ) {
+				$body .= "\tRequêtes de scan reconnues : {$issue['scanRequests']}\n";
+			}
+
+			if ( isset( $issue['distinctUserAgents'] ) ) {
+				$body .= "\tUser-Agent distincts depuis cette IP : {$issue['distinctUserAgents']}\n";
+			}
+
+			if ( isset( $issue['declaredBotRequests'] ) ) {
+				$body .= "\tRequêtes avec UA se déclarant comme bot : {$issue['declaredBotRequests']}\n";
+			}
+
+			if ( isset( $issue['declaredBotUaCount'] ) ) {
+				$body .= "\tUA de bots déclarés distincts : {$issue['declaredBotUaCount']}\n";
+			}
+
+			if ( !empty( $issue['scanTypes'] ) ) {
+				$body .= "\tTypes de scan :\n";
+
+				foreach ( $issue['scanTypes'] as $type => $count ) {
+					$body .= "\t\t$count requête(s) | $type\n";
+				}
+			}
+
+			if ( !empty( $issue['declaredBotUaExamples'] ) ) {
+				$body .= "\tUA de bots revendiqués les plus utilisés :\n";
+
+				foreach ( $issue['declaredBotUaExamples'] as $ua => $count ) {
+					$body .= "\t\t$count requête(s) | $ua\n";
+				}
+			}
+
+			foreach ( [ 1 => 'ipPeak1', 5 => 'ipPeak5', 10 => 'ipPeak10' ] as $seconds => $peakKey ) {
+				if ( !isset( $issue[$peakKey] ) ) {
+					continue;
+				}
+
+				$body .= "\tPic toutes requêtes depuis cette IP sur {$seconds} s : ";
+				$body .= $this->formatSingleIpPeak( $issue[$peakKey] ) . "\n";
 			}
 
 			if ( isset( $issue['dynamic'] ) ) {
@@ -2610,6 +2908,7 @@ class ServerHealthMail extends Maintenance {
 		$body .= $this->buildTopAllUserAgents( $data );
 		$body .= $this->buildTopPaths( $data );
 		$body .= $this->buildTopIps( $data );
+		$body .= $this->buildSecurityDiagnostics( $data );
 		$body .= $this->buildTopOrdinaryPageIps( $data );
 		$body .= $this->buildOrdinaryPageBehaviorDiagnostics( $data );
 		$body .= $this->buildApiPostDiagnostics( $data );
@@ -2829,6 +3128,109 @@ class ServerHealthMail extends Maintenance {
 
 		if ( $shown === 0 ) {
 			$body .= "Aucune IP disponible.\n";
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
+	private function buildSecurityDiagnostics( array $data ): string {
+		$scanRequests = (int)( $data['securityScanRequests'] ?? 0 );
+		$rotationCandidates = [];
+
+		foreach ( $data['ipDeclaredBotUaRequestCounts'] ?? [] as $ip => $uaCounts ) {
+			if ( count( $uaCounts ) < 3 ) {
+				continue;
+			}
+
+			$rotationCandidates[$ip] = (int)( $data['ipRequestCounts'][$ip] ?? 0 );
+		}
+
+		if ( $scanRequests === 0 && !$rotationCandidates ) {
+			return '';
+		}
+
+		$body = "Scans de vulnérabilités et rotation d’identités de bots\n";
+		$body .= "---------------------------------------------------------\n\n";
+		$body .= "Requêtes reconnues comme scans de vulnérabilités / recherche de secrets : $scanRequests\n";
+		$body .= 'IP distinctes sur ces scans : ' . count( $data['securityScanIps'] ?? [] ) . "\n";
+
+		$scanTypes = $data['securityScanTypes'] ?? [];
+		arsort( $scanTypes, SORT_NUMERIC );
+
+		if ( $scanTypes ) {
+			$body .= "Types de scan les plus fréquents :\n";
+			$shown = 0;
+
+			foreach ( $scanTypes as $type => $count ) {
+				$body .= "\t$count requête(s) | " . count( $data['securityScanTypeIps'][$type] ?? [] ) . " IP | $type\n";
+				$shown++;
+
+				if ( $shown >= self::MAX_SECURITY_SCAN_TYPES ) {
+					break;
+				}
+			}
+		}
+
+		$scanIpCounts = $data['securityScanIpRequestCounts'] ?? [];
+		arsort( $scanIpCounts, SORT_NUMERIC );
+
+		if ( $scanIpCounts ) {
+			$body .= "IP les plus actives sur les scans :\n";
+			$shown = 0;
+
+			foreach ( $scanIpCounts as $ip => $count ) {
+				$body .= "\t$count scan(s) | $ip";
+				$body .= ' | total=' . (int)( $data['ipRequestCounts'][$ip] ?? 0 );
+				$body .= ' | UA distincts=' . count( $data['ipUaRequestCounts'][$ip] ?? [] );
+				$body .= ' | UA bots déclarés=' . count( $data['ipDeclaredBotUaRequestCounts'][$ip] ?? [] ) . "\n";
+				$shown++;
+
+				if ( $shown >= self::MAX_TOP_IPS ) {
+					break;
+				}
+			}
+		}
+
+		if ( $rotationCandidates ) {
+			arsort( $rotationCandidates, SORT_NUMERIC );
+			$body .= "IP revendiquant plusieurs identités de bots :\n";
+			$shown = 0;
+
+			foreach ( $rotationCandidates as $ip => $totalRequests ) {
+				$uaCounts = $data['ipDeclaredBotUaRequestCounts'][$ip] ?? [];
+				arsort( $uaCounts, SORT_NUMERIC );
+				$body .= "\t$totalRequests requête(s) | $ip";
+				$body .= ' | UA distincts=' . count( $data['ipUaRequestCounts'][$ip] ?? [] );
+				$body .= ' | UA bots déclarés=' . count( $uaCounts );
+				$body .= ' | requêtes bots déclarés=' . (int)( $data['ipDeclaredBotRequests'][$ip] ?? 0 );
+				$body .= ' | scans=' . (int)( $data['securityScanIpRequestCounts'][$ip] ?? 0 ) . "\n";
+				$uaShown = 0;
+
+				foreach ( $uaCounts as $ua => $count ) {
+					$body .= "\t\t$count requête(s) | $ua\n";
+					$uaShown++;
+
+					if ( $uaShown >= 5 ) {
+						break;
+					}
+				}
+
+				$shown++;
+
+				if ( $shown >= self::MAX_TOP_IPS ) {
+					break;
+				}
+			}
+		}
+
+		if ( $scanRequests > 0 ) {
+			$body .= "Requêtes de scan récentes :\n";
+
+			foreach ( array_slice( $data['recentSecurityScanLines'] ?? [], 0, self::MAX_SECURITY_SCAN_LINES ) as $line ) {
+				$body .= "\t$line\n";
+			}
 		}
 
 		$body .= "\n";
