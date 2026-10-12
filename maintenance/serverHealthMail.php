@@ -65,6 +65,7 @@ class ServerHealthMail extends Maintenance {
 	private const ORDINARY_PAGE_CONCENTRATED_REQUEST_THRESHOLD = 300;
 	private const ORDINARY_PAGE_HEAVY_IP_REQUEST_THRESHOLD = 80;
 	private const ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD = 0.70;
+	private const ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD = 15;
 
 	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITH_PRESSURE = 5;
 	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITHOUT_PRESSURE = 25;
@@ -95,6 +96,11 @@ class ServerHealthMail extends Maintenance {
 	private const MAX_RECENT_ORDINARY_LINES = 100;
 	private const MAX_RECENT_FAST_REJECT_LINES = 50;
 	private const MAX_FAST_REJECT_URLS = 10;
+	private const MAX_RECENT_HTTP_429_LINES = 50;
+	private const MAX_HTTP_429_URLS = 10;
+	private const MAX_HTTP_429_UAS = 10;
+	private const MAX_HTTP_429_IPS = 10;
+	private const MAX_SHORT_BURST_IPS = 10;
 	private const MAX_SNAPSHOT_IPS = 15;
 	private const MAX_SNAPSHOT_WORKERS = 8;
 	private const MAX_APACHE_ACTIVE_WORKERS = 30;
@@ -929,6 +935,12 @@ class ServerHealthMail extends Maintenance {
 				'fastRejectedIps' => [],
 				'fastRejectedUrls' => [],
 				'recentFastRejectedLines' => [],
+				'http429Requests' => 0,
+				'http429Ips' => [],
+				'http429IpRequestCounts' => [],
+				'http429Urls' => [],
+				'http429Ua' => [],
+				'recentHttp429Lines' => [],
 				'suspiciousRequests' => 0,
 				'allIps' => [],
 				'ipRequestCounts' => [],
@@ -1084,6 +1096,37 @@ class ServerHealthMail extends Maintenance {
 
 					if ( count( $result[$wiki]['recentFastRejectedLines'] ) < self::MAX_RECENT_FAST_REJECT_LINES ) {
 						$result[$wiki]['recentFastRejectedLines'][] = $formattedLine;
+					}
+				}
+
+				if ( $status === '429' ) {
+					$result[$wiki]['http429Requests']++;
+					$result[$wiki]['http429Ips'][$parsed['ip']] = true;
+					$result[$wiki]['http429IpRequestCounts'][$parsed['ip']] =
+						( $result[$wiki]['http429IpRequestCounts'][$parsed['ip']] ?? 0 ) + 1;
+
+					if ( !isset( $result[$wiki]['http429Urls'][$safeUrl] ) ) {
+						$result[$wiki]['http429Urls'][$safeUrl] = [
+							'count' => 0,
+							'ips' => [],
+						];
+					}
+
+					$result[$wiki]['http429Urls'][$safeUrl]['count']++;
+					$result[$wiki]['http429Urls'][$safeUrl]['ips'][$parsed['ip']] = true;
+
+					if ( !isset( $result[$wiki]['http429Ua'][$ua] ) ) {
+						$result[$wiki]['http429Ua'][$ua] = [
+							'requests' => 0,
+							'ips' => [],
+						];
+					}
+
+					$result[$wiki]['http429Ua'][$ua]['requests']++;
+					$result[$wiki]['http429Ua'][$ua]['ips'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['recentHttp429Lines'] ) < self::MAX_RECENT_HTTP_429_LINES ) {
+						$result[$wiki]['recentHttp429Lines'][] = $formattedLine;
 					}
 				}
 
@@ -1852,6 +1895,39 @@ class ServerHealthMail extends Maintenance {
 		return $details;
 	}
 
+	private function getOrdinaryShortBurstIpDetails( array $data ): array {
+		$details = [];
+
+		foreach ( $data['ordinaryPageIpSecondCounts'] ?? [] as $ip => $secondCounts ) {
+			$peak10 = $this->getSingleIpWindowPeak( $secondCounts, 10 );
+
+			if ( (int)( $peak10['requests'] ?? 0 ) < self::ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD ) {
+				continue;
+			}
+
+			$details[] = [
+				'ip' => $ip,
+				'requests' => (int)( $data['ordinaryPageIpRequestCounts'][$ip] ?? 0 ),
+				'peak1' => $this->getSingleIpWindowPeak( $secondCounts, 1 ),
+				'peak5' => $this->getSingleIpWindowPeak( $secondCounts, 5 ),
+				'peak10' => $peak10,
+			];
+		}
+
+		usort( $details, static function ( array $a, array $b ): int {
+			$peakA = (int)( $a['peak10']['requests'] ?? 0 );
+			$peakB = (int)( $b['peak10']['requests'] ?? 0 );
+
+			if ( $peakA !== $peakB ) {
+				return $peakB <=> $peakA;
+			}
+
+			return (int)( $b['requests'] ?? 0 ) <=> (int)( $a['requests'] ?? 0 );
+		} );
+
+		return array_slice( $details, 0, self::MAX_SHORT_BURST_IPS );
+	}
+
 	private function getOrdinaryIpTenSecondThresholdCounts( array $data ): array {
 		$counts = [
 			'over5' => 0,
@@ -2103,6 +2179,7 @@ class ServerHealthMail extends Maintenance {
 				&& $heavyOrdinaryShare >= self::ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD
 			);
 			$ordinaryIpTenSecondThresholdCounts = $this->getOrdinaryIpTenSecondThresholdCounts( $data );
+			$shortBurstIpTemporalDetails = $this->getOrdinaryShortBurstIpDetails( $data );
 			$heavyOrdinaryIpTemporalDetails = $this->getOrdinaryIpTemporalDetails(
 				$data,
 				$heavyOrdinaryIpCounts
@@ -2152,6 +2229,27 @@ class ServerHealthMail extends Maintenance {
 					'requestsPerIp' => $ipCount > 0 ? $stats['requests'] / $ipCount : 0.0,
 					'logLines' => array_slice(
 						$stats['lines'],
+						0,
+						self::MAX_MAIL_LINES_PER_WIKI
+					),
+				];
+			}
+
+			if ( $shortBurstIpTemporalDetails ) {
+				$issues[] = [
+					'type' => 'crawler-wiki-ordinary-short-burst',
+					'label' => 'Burst concentré très rapide de pages ordinaires',
+					'wiki' => $wiki,
+					'ordinary' => $data['ordinaryPageRequests'],
+					'ips' => count( $shortBurstIpTemporalDetails ),
+					'shortBurstThreshold' => self::ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD,
+					'peak1' => $ordinaryPeak1,
+					'peak5' => $ordinaryPeak5,
+					'peak10' => $ordinaryPeak10,
+					'topUaRefGroup' => $topOrdinaryUaRefGroup,
+					'shortBurstIpTemporalDetails' => $shortBurstIpTemporalDetails,
+					'logLines' => array_slice(
+						$data['recentOrdinaryPageLines'],
 						0,
 						self::MAX_MAIL_LINES_PER_WIKI
 					),
@@ -2513,6 +2611,21 @@ class ServerHealthMail extends Maintenance {
 				}
 			}
 
+			if ( isset( $issue['shortBurstThreshold'] ) ) {
+				$body .= "\tSeuil du burst court : {$issue['shortBurstThreshold']} pages ordinaires / 10 s / IP\n";
+			}
+
+			if ( !empty( $issue['shortBurstIpTemporalDetails'] ) ) {
+				$body .= "\tIP ayant franchi le seuil de burst court :\n";
+
+				foreach ( $issue['shortBurstIpTemporalDetails'] as $detail ) {
+					$body .= "\t\t{$detail['ip']} : {$detail['requests']} pages ordinaires dans la fenêtre\n";
+					$body .= "\t\t\tPic 1 s : " . $this->formatSingleIpPeak( $detail['peak1'] ) . "\n";
+					$body .= "\t\t\tPic 5 s : " . $this->formatSingleIpPeak( $detail['peak5'] ) . "\n";
+					$body .= "\t\t\tPic 10 s : " . $this->formatSingleIpPeak( $detail['peak10'] ) . "\n";
+				}
+			}
+
 			if ( isset( $issue['sourceIp'] ) ) {
 				$body .= "\tIP source : {$issue['sourceIp']}\n";
 			}
@@ -2595,6 +2708,34 @@ class ServerHealthMail extends Maintenance {
 			}
 
 			$body .= "\n";
+		}
+
+		if ( $serverPressure ) {
+			$shortBurstIssues = array_values( array_filter(
+				$issues,
+				static fn ( array $issue ): bool => ( $issue['type'] ?? '' ) === 'crawler-wiki-ordinary-short-burst'
+			) );
+
+			if ( $shortBurstIssues ) {
+				$body .= "Corrélation trafic / pression serveur\n";
+				$body .= "-------------------------------------\n\n";
+				$body .= "Au moins un burst très rapide de pages ordinaires est observé dans la même fenêtre ";
+				$body .= "qu’une pression serveur. Cette coïncidence temporelle ne démontre pas à elle seule un lien causal.\n";
+
+				foreach ( $shortBurstIssues as $shortBurstIssue ) {
+					$details = $shortBurstIssue['shortBurstIpTemporalDetails'] ?? [];
+					$topDetail = $details[0] ?? null;
+
+					if ( !$topDetail ) {
+						continue;
+					}
+
+					$body .= "\t{$shortBurstIssue['wiki']} : {$topDetail['ip']} | pic 10 s = ";
+					$body .= (int)( $topDetail['peak10']['requests'] ?? 0 ) . " page(s) ordinaire(s)\n";
+				}
+
+				$body .= "\n";
+			}
 		}
 
 		$body .= $this->buildTrafficSummary( $logs );
@@ -2790,6 +2931,7 @@ class ServerHealthMail extends Maintenance {
 			$body .= " | autres UA={$data['ordinaryPageNonDeclaredBotRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
 			$body .= " | rejets 418={$data['fastRejectedRequests']}";
+			$body .= " | HTTP 429={$data['http429Requests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
 			$body .= " | POST API={$data['apiPostRequests']}";
 			$body .= " | très suspectes={$data['suspiciousRequests']}\n";
@@ -2856,6 +2998,8 @@ class ServerHealthMail extends Maintenance {
 			$body .= 'IP distinctes sur requêtes dynamiques : ' . count( $data['dynamicIps'] ) . "\n";
 			$body .= "Rejets rapides HTTP 418 : {$data['fastRejectedRequests']}\n";
 			$body .= 'IP distinctes sur rejets HTTP 418 : ' . count( $data['fastRejectedIps'] ) . "\n";
+			$body .= "Réponses HTTP 429 observées à l’origine : {$data['http429Requests']}\n";
+			$body .= 'IP distinctes sur HTTP 429 : ' . count( $data['http429Ips'] ) . "\n";
 			$body .= "POST vers /w/api.php : {$data['apiPostRequests']}\n";
 			$body .= "Requêtes très suspectes : {$data['suspiciousRequests']}\n";
 			$body .= 'IP distinctes sur requêtes très suspectes : ';
@@ -2863,6 +3007,7 @@ class ServerHealthMail extends Maintenance {
 
 			$body .= $this->buildAllTrafficDiagnostics( $data );
 			$body .= $this->buildFastRejectDiagnostics( $data );
+			$body .= $this->buildHttp429Diagnostics( $data );
 			$body .= $this->buildTopUserAgents( $data );
 			$body .= $this->buildTopDynamicUrls( $data );
 			$body .= $this->buildRelevantLogLines( $data );
@@ -2956,7 +3101,7 @@ class ServerHealthMail extends Maintenance {
 		$body .= "\nPar code HTTP — pics temporels\n";
 		$body .= "------------------------------\n\n";
 
-		foreach ( [ '200', '304', '418' ] as $status ) {
+		foreach ( [ '200', '304', '418', '429' ] as $status ) {
 			$total = (int)( $data['statuses'][$status] ?? 0 );
 			$secondCounts = $data['statusSecondCounts'][$status] ?? [];
 			$secondIps = $data['statusSecondIps'][$status] ?? [];
@@ -3517,6 +3662,101 @@ class ServerHealthMail extends Maintenance {
 		return $body;
 	}
 
+	private function buildHttp429Diagnostics( array $data ): string {
+		$body = "Réponses HTTP 429 observées à l’origine\n";
+		$body .= "----------------------------------------\n\n";
+		$body .= "Total : {$data['http429Requests']}\n";
+		$body .= 'IP différentes : ' . count( $data['http429Ips'] ) . "\n";
+		$body .= "Note : le code 429 est observé dans le journal d’accès de l’origine ; ";
+		$body .= "ce diagnostic ne l’attribue pas automatiquement à CrawlerBurstProtection ou à Cloudflare.\n";
+
+		if ( $data['http429Requests'] === 0 ) {
+			$body .= "Aucune réponse HTTP 429 dans la fenêtre analysée.\n\n";
+			return $body;
+		}
+
+		$secondCounts = $data['statusSecondCounts']['429'] ?? [];
+		$secondIps = $data['statusSecondIps']['429'] ?? [];
+
+		foreach ( [ 1, 5, 10 ] as $seconds ) {
+			$peak = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, $seconds );
+			$body .= $this->formatTemporalPeakLine( "HTTP 429 — pic {$seconds} s", $peak );
+		}
+
+		$ipCounts = $data['http429IpRequestCounts'] ?? [];
+		arsort( $ipCounts, SORT_NUMERIC );
+
+		if ( $ipCounts ) {
+			$body .= "IP les plus concernées :\n";
+			$shown = 0;
+
+			foreach ( $ipCounts as $ip => $count ) {
+				$body .= "\t$count réponse(s) 429 | $ip\n";
+				$shown++;
+
+				if ( $shown >= self::MAX_HTTP_429_IPS ) {
+					break;
+				}
+			}
+		}
+
+		$uas = $data['http429Ua'] ?? [];
+		uasort( $uas, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		if ( $uas ) {
+			$body .= "User-Agent les plus concernés :\n";
+			$shown = 0;
+
+			foreach ( $uas as $ua => $stats ) {
+				$body .= "\t{$stats['requests']} réponse(s) 429 | " . count( $stats['ips'] ) . " IP | $ua\n";
+				$shown++;
+
+				if ( $shown >= self::MAX_HTTP_429_UAS ) {
+					break;
+				}
+			}
+		}
+
+		$urls = $data['http429Urls'] ?? [];
+		uasort( $urls, static function ( array $a, array $b ): int {
+			if ( $a['count'] !== $b['count'] ) {
+				return $b['count'] <=> $a['count'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		if ( $urls ) {
+			$body .= "URL les plus concernées :\n";
+			$shown = 0;
+
+			foreach ( $urls as $url => $stats ) {
+				$body .= "\t{$stats['count']} réponse(s) 429 | " . count( $stats['ips'] ) . " IP | $url\n";
+				$shown++;
+
+				if ( $shown >= self::MAX_HTTP_429_URLS ) {
+					break;
+				}
+			}
+		}
+
+		$body .= "Réponses HTTP 429 récentes :\n";
+
+		foreach ( array_slice( $data['recentHttp429Lines'], 0, 20 ) as $line ) {
+			$body .= "\t$line\n";
+		}
+
+		$body .= "\n";
+
+		return $body;
+	}
+
 	private function buildTopUserAgents( array $data ): string {
 		$uas = $data['ua'];
 
@@ -3686,7 +3926,8 @@ class ServerHealthMail extends Maintenance {
 			$body .= " | autres UA={$data['ordinaryPageNonDeclaredBotRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
-			$body .= " | rejets 418={$data['fastRejectedRequests']}\n";
+			$body .= " | rejets 418={$data['fastRejectedRequests']}";
+			$body .= " | HTTP 429={$data['http429Requests']}\n";
 		}
 
 		return $body;
