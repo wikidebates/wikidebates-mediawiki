@@ -142,6 +142,17 @@ class ServerHealthMail extends Maintenance {
 		'MILITOTHÈQUE' => '/home/users/webmaster/www/militotheque.org/w/cache',
 	];
 
+	private array $fileCacheDepths = [
+		'FR' => 1,
+		'EN' => 1,
+		'DE' => 1,
+		'ES' => 1,
+		'IT' => 1,
+		'PT' => 1,
+		'DEV' => 1,
+		'MILITOTHÈQUE' => 0,
+	];
+
 	public function __construct() {
 		parent::__construct();
 
@@ -1414,9 +1425,11 @@ class ServerHealthMail extends Maintenance {
 
 	private function isConfirmedFileCacheHit( string $wiki, array $parsed, string $path ): bool {
 		$cacheDirectory = $this->fileCacheDirectories[$wiki] ?? null;
+		$cacheDepth = $this->fileCacheDepths[$wiki] ?? null;
 
 		if (
 			$cacheDirectory === null
+			|| $cacheDepth === null
 			|| (string)( $parsed['status'] ?? '' ) !== '200'
 			|| !ctype_digit( (string)( $parsed['bytes'] ?? '' ) )
 		) {
@@ -1431,11 +1444,21 @@ class ServerHealthMail extends Maintenance {
 
 		$key = 'ns' . $titleParts['namespace'] . ':' . $titleParts['dbKey'];
 		$encodedKey = str_replace( '.', '%2E', urlencode( $key ) );
+		$hashSubdirectory = '';
+
+		if ( $cacheDepth > 0 ) {
+			$hash = md5( $key );
+
+			for ( $i = 1; $i <= $cacheDepth; $i++ ) {
+				$hashSubdirectory .= substr( $hash, 0, $i ) . '/';
+			}
+		}
+
 		$expectedBytes = (int)$parsed['bytes'];
 		$requestTimestamp = $parsed['time']->getTimestamp();
 
 		foreach ( [ '.html', '.html.gz' ] as $suffix ) {
-			$file = $cacheDirectory . '/' . $encodedKey . $suffix;
+			$file = $cacheDirectory . '/' . $hashSubdirectory . $encodedKey . $suffix;
 
 			if ( !is_file( $file ) ) {
 				continue;
