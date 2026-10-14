@@ -65,7 +65,8 @@ class ServerHealthMail extends Maintenance {
 	private const ORDINARY_PAGE_CONCENTRATED_REQUEST_THRESHOLD = 300;
 	private const ORDINARY_PAGE_HEAVY_IP_REQUEST_THRESHOLD = 80;
 	private const ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD = 0.70;
-	private const ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD = 15;
+	private const ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD_WITH_PRESSURE = 15;
+	private const ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD_WITHOUT_PRESSURE = 30;
 
 	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITH_PRESSURE = 5;
 	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITHOUT_PRESSURE = 25;
@@ -93,6 +94,11 @@ class ServerHealthMail extends Maintenance {
 	private const MAX_TOP_ORDINARY_IP_TEMPORAL = 10;
 	private const ORDINARY_IP_TEMPORAL_MIN_REQUESTS = 5;
 	private const MAX_API_POST_UAS = 10;
+	private const MAX_API_GET_IPS = 10;
+	private const MAX_API_GET_ACTIONS = 15;
+	private const MAX_RECENT_API_GET_LINES = 50;
+	private const API_GET_HETEROGENEOUS_REQUEST_THRESHOLD = 20;
+	private const API_GET_HETEROGENEOUS_OPERATION_THRESHOLD = 10;
 	private const MAX_RECENT_ORDINARY_LINES = 100;
 	private const MAX_RECENT_FAST_REJECT_LINES = 50;
 	private const MAX_FAST_REJECT_URLS = 10;
@@ -123,6 +129,17 @@ class ServerHealthMail extends Maintenance {
 		'DEV' => '/home/users/webmaster/logs/dev.wikidebates.org/access.log',
 		'FARM' => '/home/users/webmaster/logs/farm.wikidebates.org/access.log',
 		'MILITOTHÈQUE' => '/home/users/webmaster/logs/militotheque.org/access.log',
+	];
+
+	private array $fileCacheDirectories = [
+		'FR' => '/home/users/webmaster/www/fr.wikidebates.org/w/cache',
+		'EN' => '/home/users/webmaster/www/en.wikidebates.org/w/cache',
+		'DE' => '/home/users/webmaster/www/de.wikidebates.org/w/cache',
+		'ES' => '/home/users/webmaster/www/es.wikidebates.org/w/cache',
+		'IT' => '/home/users/webmaster/www/it.wikidebates.org/w/cache',
+		'PT' => '/home/users/webmaster/www/pt.wikidebates.org/w/cache',
+		'DEV' => '/home/users/webmaster/www/dev.wikidebates.org/w/cache',
+		'MILITOTHÈQUE' => '/home/users/webmaster/www/militotheque.org/w/cache',
 	];
 
 	public function __construct() {
@@ -929,6 +946,9 @@ class ServerHealthMail extends Maintenance {
 				'ordinaryPageNonDeclaredBotUaRefGroups' => [],
 				'recentOrdinaryPageLines' => [],
 				'recentOrdinaryPageNonDeclaredBotLines' => [],
+				'ordinaryPageFileCacheConfirmedRequests' => 0,
+				'ordinaryPageFileCacheConfirmedIps' => [],
+				'ordinaryPageProtectionRecords' => [],
 				'dynamicRequests' => 0,
 				'dynamicIps' => [],
 				'fastRejectedRequests' => 0,
@@ -968,6 +988,14 @@ class ServerHealthMail extends Maintenance {
 				'statuses' => [],
 				'allUa' => [],
 				'paths' => [],
+				'apiGetRequests' => 0,
+				'apiGetIps' => [],
+				'apiGetIpRequestCounts' => [],
+				'apiGetIpActions' => [],
+				'apiGetIpOperations' => [],
+				'apiGetActions' => [],
+				'apiGetOperations' => [],
+				'recentApiGetLines' => [],
 				'apiPostRequests' => 0,
 				'apiPostIps' => [],
 				'apiPostUa' => [],
@@ -1130,6 +1158,43 @@ class ServerHealthMail extends Maintenance {
 					}
 				}
 
+				if ( $method === 'GET' && strtolower( $path ) === '/w/api.php' ) {
+					$apiAction = $this->extractApiAction( $parsed['url'] );
+					$apiOperation = $this->extractApiOperation( $parsed['url'] );
+					$result[$wiki]['apiGetRequests']++;
+					$result[$wiki]['apiGetIps'][$parsed['ip']] = true;
+					$result[$wiki]['apiGetIpRequestCounts'][$parsed['ip']] =
+						( $result[$wiki]['apiGetIpRequestCounts'][$parsed['ip']] ?? 0 ) + 1;
+					$result[$wiki]['apiGetIpActions'][$parsed['ip']][$apiAction] =
+						( $result[$wiki]['apiGetIpActions'][$parsed['ip']][$apiAction] ?? 0 ) + 1;
+					$result[$wiki]['apiGetIpOperations'][$parsed['ip']][$apiOperation] =
+						( $result[$wiki]['apiGetIpOperations'][$parsed['ip']][$apiOperation] ?? 0 ) + 1;
+
+					if ( !isset( $result[$wiki]['apiGetActions'][$apiAction] ) ) {
+						$result[$wiki]['apiGetActions'][$apiAction] = [
+							'requests' => 0,
+							'ips' => [],
+						];
+					}
+
+					$result[$wiki]['apiGetActions'][$apiAction]['requests']++;
+					$result[$wiki]['apiGetActions'][$apiAction]['ips'][$parsed['ip']] = true;
+
+					if ( !isset( $result[$wiki]['apiGetOperations'][$apiOperation] ) ) {
+						$result[$wiki]['apiGetOperations'][$apiOperation] = [
+							'requests' => 0,
+							'ips' => [],
+						];
+					}
+
+					$result[$wiki]['apiGetOperations'][$apiOperation]['requests']++;
+					$result[$wiki]['apiGetOperations'][$apiOperation]['ips'][$parsed['ip']] = true;
+
+					if ( count( $result[$wiki]['recentApiGetLines'] ) < self::MAX_RECENT_API_GET_LINES ) {
+						$result[$wiki]['recentApiGetLines'][] = $formattedLine;
+					}
+				}
+
 				if ( $method === 'POST' && strtolower( $path ) === '/w/api.php' ) {
 					$result[$wiki]['apiPostRequests']++;
 					$result[$wiki]['apiPostIps'][$parsed['ip']] = true;
@@ -1269,6 +1334,20 @@ class ServerHealthMail extends Maintenance {
 					if ( count( $result[$wiki]['recentOrdinaryPageLines'] ) < self::MAX_RECENT_ORDINARY_LINES ) {
 						$result[$wiki]['recentOrdinaryPageLines'][] = $formattedLine;
 					}
+
+					if ( $this->isConfirmedFileCacheHit( $wiki, $parsed, $path ) ) {
+						$result[$wiki]['ordinaryPageFileCacheConfirmedRequests']++;
+						$result[$wiki]['ordinaryPageFileCacheConfirmedIps'][$parsed['ip']] = true;
+					} else {
+						$result[$wiki]['ordinaryPageProtectionRecords'][] = [
+							'ip' => $parsed['ip'],
+							'second' => $second,
+							'ua' => $ua,
+							'referrer' => $safeReferrer,
+							'declaredBot' => $this->isSelfDeclaredBotUserAgent( $ua ),
+							'line' => $formattedLine,
+						];
+					}
 				}
 
 				if ( $class['dynamic'] && !$isFastRejected ) {
@@ -1331,6 +1410,233 @@ class ServerHealthMail extends Maintenance {
 		}
 
 		return $result;
+	}
+
+	private function isConfirmedFileCacheHit( string $wiki, array $parsed, string $path ): bool {
+		$cacheDirectory = $this->fileCacheDirectories[$wiki] ?? null;
+
+		if (
+			$cacheDirectory === null
+			|| (string)( $parsed['status'] ?? '' ) !== '200'
+			|| !ctype_digit( (string)( $parsed['bytes'] ?? '' ) )
+		) {
+			return false;
+		}
+
+		$titleParts = $this->getFileCacheTitleParts( $path );
+
+		if ( $titleParts === null ) {
+			return false;
+		}
+
+		$key = 'ns' . $titleParts['namespace'] . ':' . $titleParts['dbKey'];
+		$encodedKey = str_replace( '.', '%2E', urlencode( $key ) );
+		$expectedBytes = (int)$parsed['bytes'];
+		$requestTimestamp = $parsed['time']->getTimestamp();
+
+		foreach ( [ '.html', '.html.gz' ] as $suffix ) {
+			$file = $cacheDirectory . '/' . $encodedKey . $suffix;
+
+			if ( !is_file( $file ) ) {
+				continue;
+			}
+
+			$mtime = filemtime( $file );
+			$size = filesize( $file );
+
+			if (
+				$mtime !== false
+				&& $size !== false
+				&& $mtime < $requestTimestamp
+				&& $size === $expectedBytes
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private function getFileCacheTitleParts( string $path ): ?array {
+		if ( !str_starts_with( $path, '/wiki/' ) ) {
+			return null;
+		}
+
+		$titleText = rawurldecode( substr( $path, 6 ) );
+		$titleText = trim( $titleText );
+
+		if ( $titleText === '' ) {
+			return null;
+		}
+
+		$namespace = 0;
+		$dbKey = $titleText;
+		$colonPos = strpos( $titleText, ':' );
+
+		if ( $colonPos !== false ) {
+			$prefix = substr( $titleText, 0, $colonPos );
+			$namespaceMap = $this->getFileCacheNamespaceAliasMap();
+			$normalizedPrefix = str_replace( '_', ' ', trim( $prefix ) );
+			$normalizedPrefix = preg_replace( '/\s+/u', ' ', $normalizedPrefix ) ?? $normalizedPrefix;
+			$normalizedPrefix = function_exists( 'mb_strtolower' )
+				? mb_strtolower( $normalizedPrefix, 'UTF-8' )
+				: strtolower( $normalizedPrefix );
+
+			if ( isset( $namespaceMap[$normalizedPrefix] ) ) {
+				$namespace = $namespaceMap[$normalizedPrefix];
+				$dbKey = substr( $titleText, $colonPos + 1 );
+			}
+		}
+
+		$dbKey = str_replace( ' ', '_', trim( $dbKey ) );
+
+		if ( $dbKey === '' ) {
+			return null;
+		}
+
+		return [
+			'namespace' => $namespace,
+			'dbKey' => $dbKey,
+		];
+	}
+
+	private function getFileCacheNamespaceAliasMap(): array {
+		static $map = null;
+
+		if ( $map !== null ) {
+			return $map;
+		}
+
+		$aliases = [
+			1 => [ 'talk', 'discussion', 'diskussion', 'discusión', 'discussione', 'discussão' ],
+			2 => [ 'user', 'utilisateur', 'benutzer', 'usuario', 'utente', 'utilizador', 'usuário' ],
+			3 => [ 'user talk', 'discussion utilisateur', 'benutzer diskussion', 'usuario discusión', 'discussioni utente', 'utilizador discussão', 'usuário discussão' ],
+			4 => [ 'project', 'wikidébats', 'wikidebates', 'militothèque' ],
+			5 => [ 'project talk', 'discussion wikidébats', 'discussion wikidebates', 'discussion militothèque' ],
+			6 => [ 'file', 'image', 'fichier', 'datei', 'archivo', 'immagine', 'ficheiro' ],
+			7 => [ 'file talk', 'image talk', 'discussion fichier', 'datei diskussion', 'archivo discusión', 'discussioni file', 'ficheiro discussão' ],
+			8 => [ 'mediawiki' ],
+			9 => [ 'mediawiki talk', 'discussion mediawiki', 'mediawiki diskussion', 'mediawiki discusión', 'discussioni mediawiki', 'mediawiki discussão' ],
+			10 => [ 'template', 'modèle', 'vorlage', 'plantilla', 'predefinição' ],
+			11 => [ 'template talk', 'discussion modèle', 'vorlage diskussion', 'plantilla discusión', 'discussioni template', 'predefinição discussão' ],
+			12 => [ 'help', 'aide', 'hilfe', 'ayuda', 'aiuto', 'ajuda' ],
+			13 => [ 'help talk', 'discussion aide', 'hilfe diskussion', 'ayuda discusión', 'discussioni aiuto', 'ajuda discussão' ],
+			14 => [ 'category', 'catégorie', 'kategorie', 'categoría', 'categoria' ],
+			15 => [ 'category talk', 'discussion catégorie', 'kategorie diskussion', 'categoría discusión', 'discussioni categoria', 'categoria discussão' ],
+		];
+		$map = [];
+
+		foreach ( $aliases as $namespace => $names ) {
+			foreach ( $names as $name ) {
+				$map[$name] = $namespace;
+			}
+		}
+
+		return $map;
+	}
+
+	private function buildOrdinaryProtectionData( array $records ): array {
+		$data = [
+			'ordinaryPageRequests' => 0,
+			'ordinaryPageIps' => [],
+			'ordinaryPageIpRequestCounts' => [],
+			'ordinaryPageIpSecondCounts' => [],
+			'ordinaryPageSecondCounts' => [],
+			'ordinaryPageSecondIps' => [],
+			'ordinaryPageUaRefGroups' => [],
+			'ordinaryPageDeclaredBotRequests' => 0,
+			'ordinaryPageDeclaredBotIps' => [],
+			'ordinaryPageDeclaredBotUa' => [],
+			'ordinaryPageNonDeclaredBotRequests' => 0,
+			'ordinaryPageNonDeclaredBotIps' => [],
+			'ordinaryPageNonDeclaredBotIpRequestCounts' => [],
+			'ordinaryPageNonDeclaredBotSecondCounts' => [],
+			'ordinaryPageNonDeclaredBotSecondIps' => [],
+			'ordinaryPageNonDeclaredBotUaRefGroups' => [],
+			'recentOrdinaryPageLines' => [],
+			'recentOrdinaryPageNonDeclaredBotLines' => [],
+		];
+
+		foreach ( $records as $record ) {
+			$ip = (string)( $record['ip'] ?? '' );
+			$second = (int)( $record['second'] ?? 0 );
+			$ua = (string)( $record['ua'] ?? '' );
+			$referrer = (string)( $record['referrer'] ?? '' );
+			$line = (string)( $record['line'] ?? '' );
+			$declaredBot = !empty( $record['declaredBot'] );
+
+			if ( $ip === '' || $second < 1 ) {
+				continue;
+			}
+
+			$data['ordinaryPageRequests']++;
+			$data['ordinaryPageIps'][$ip] = true;
+			$data['ordinaryPageIpRequestCounts'][$ip] = ( $data['ordinaryPageIpRequestCounts'][$ip] ?? 0 ) + 1;
+			$data['ordinaryPageIpSecondCounts'][$ip][$second] = ( $data['ordinaryPageIpSecondCounts'][$ip][$second] ?? 0 ) + 1;
+			$data['ordinaryPageSecondCounts'][$second] = ( $data['ordinaryPageSecondCounts'][$second] ?? 0 ) + 1;
+			$data['ordinaryPageSecondIps'][$second][$ip] = true;
+			$uaRefKey = sha1( $ua . "\n" . $referrer );
+
+			if ( !isset( $data['ordinaryPageUaRefGroups'][$uaRefKey] ) ) {
+				$data['ordinaryPageUaRefGroups'][$uaRefKey] = [
+					'ua' => $ua,
+					'referrer' => $referrer,
+					'requests' => 0,
+					'ips' => [],
+				];
+			}
+
+			$data['ordinaryPageUaRefGroups'][$uaRefKey]['requests']++;
+			$data['ordinaryPageUaRefGroups'][$uaRefKey]['ips'][$ip] = true;
+
+			if ( $declaredBot ) {
+				$data['ordinaryPageDeclaredBotRequests']++;
+				$data['ordinaryPageDeclaredBotIps'][$ip] = true;
+
+				if ( !isset( $data['ordinaryPageDeclaredBotUa'][$ua] ) ) {
+					$data['ordinaryPageDeclaredBotUa'][$ua] = [
+						'requests' => 0,
+						'ips' => [],
+						'lines' => [],
+					];
+				}
+
+				$data['ordinaryPageDeclaredBotUa'][$ua]['requests']++;
+				$data['ordinaryPageDeclaredBotUa'][$ua]['ips'][$ip] = true;
+
+				if ( count( $data['ordinaryPageDeclaredBotUa'][$ua]['lines'] ) < self::MAX_UA_LINES && $line !== '' ) {
+					$data['ordinaryPageDeclaredBotUa'][$ua]['lines'][] = $line;
+				}
+			} else {
+				$data['ordinaryPageNonDeclaredBotRequests']++;
+				$data['ordinaryPageNonDeclaredBotIps'][$ip] = true;
+				$data['ordinaryPageNonDeclaredBotIpRequestCounts'][$ip] = ( $data['ordinaryPageNonDeclaredBotIpRequestCounts'][$ip] ?? 0 ) + 1;
+				$data['ordinaryPageNonDeclaredBotSecondCounts'][$second] = ( $data['ordinaryPageNonDeclaredBotSecondCounts'][$second] ?? 0 ) + 1;
+				$data['ordinaryPageNonDeclaredBotSecondIps'][$second][$ip] = true;
+
+				if ( !isset( $data['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey] ) ) {
+					$data['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey] = [
+						'ua' => $ua,
+						'referrer' => $referrer,
+						'requests' => 0,
+						'ips' => [],
+					];
+				}
+
+				$data['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey]['requests']++;
+				$data['ordinaryPageNonDeclaredBotUaRefGroups'][$uaRefKey]['ips'][$ip] = true;
+
+				if ( count( $data['recentOrdinaryPageNonDeclaredBotLines'] ) < self::MAX_RECENT_ORDINARY_LINES && $line !== '' ) {
+					$data['recentOrdinaryPageNonDeclaredBotLines'][] = $line;
+				}
+			}
+
+			if ( count( $data['recentOrdinaryPageLines'] ) < self::MAX_RECENT_ORDINARY_LINES && $line !== '' ) {
+				$data['recentOrdinaryPageLines'][] = $line;
+			}
+		}
+
+		return $data;
 	}
 
 	private function parseLogLine( string $line ): ?array {
@@ -1495,6 +1801,77 @@ class ServerHealthMail extends Maintenance {
 		}
 
 		return null;
+	}
+
+	private function extractApiAction( string $url ): string {
+		$parsed = parse_url( $url );
+
+		if ( $parsed === false ) {
+			return '(action indéterminée)';
+		}
+
+		$query = (string)( $parsed['query'] ?? '' );
+
+		if ( $query === '' ) {
+			return '(action absente)';
+		}
+
+		parse_str( $query, $args );
+
+		if ( !isset( $args['action'] ) ) {
+			return '(action absente)';
+		}
+
+		$action = $args['action'];
+		$action = is_array( $action ) ? (string)reset( $action ) : (string)$action;
+		$action = strtolower( trim( $action ) );
+
+		return $action !== '' ? $action : '(action vide)';
+	}
+
+	private function extractApiOperation( string $url ): string {
+		$parsed = parse_url( $url );
+
+		if ( $parsed === false ) {
+			return '(opération indéterminée)';
+		}
+
+		$query = (string)( $parsed['query'] ?? '' );
+
+		if ( $query === '' ) {
+			return '(action absente)';
+		}
+
+		parse_str( $query, $args );
+		$action = $args['action'] ?? null;
+		$action = is_array( $action ) ? (string)reset( $action ) : (string)$action;
+		$action = strtolower( trim( $action ) );
+
+		if ( $action === '' ) {
+			return '(action absente)';
+		}
+
+		if ( $action !== 'query' ) {
+			return $action;
+		}
+
+		$parts = [];
+
+		foreach ( [ 'list', 'meta', 'prop', 'generator' ] as $name ) {
+			if ( !isset( $args[$name] ) ) {
+				continue;
+			}
+
+			$value = $args[$name];
+			$value = is_array( $value ) ? implode( ',', array_map( 'strval', $value ) ) : (string)$value;
+			$value = strtolower( trim( $value ) );
+
+			if ( $value !== '' ) {
+				$parts[] = $name . '=' . $value;
+			}
+		}
+
+		return $parts ? 'query:' . implode( '+', $parts ) : 'query';
 	}
 
 	private function classifyRequest( string $url ): array {
@@ -1895,13 +2272,17 @@ class ServerHealthMail extends Maintenance {
 		return $details;
 	}
 
-	private function getOrdinaryShortBurstIpDetails( array $data ): array {
+	private function getOrdinaryShortBurstIpDetails( array $data, int $threshold ): array {
 		$details = [];
+
+		if ( $threshold < 1 ) {
+			return [];
+		}
 
 		foreach ( $data['ordinaryPageIpSecondCounts'] ?? [] as $ip => $secondCounts ) {
 			$peak10 = $this->getSingleIpWindowPeak( $secondCounts, 10 );
 
-			if ( (int)( $peak10['requests'] ?? 0 ) < self::ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD ) {
+			if ( (int)( $peak10['requests'] ?? 0 ) < $threshold ) {
 				continue;
 			}
 
@@ -2093,6 +2474,16 @@ class ServerHealthMail extends Maintenance {
 				$issues[] = $securityIssue;
 			}
 
+			$rawOrdinaryPageRequests = (int)( $data['ordinaryPageRequests'] ?? 0 );
+			$fileCacheConfirmedRequests = (int)( $data['ordinaryPageFileCacheConfirmedRequests'] ?? 0 );
+			$ordinaryProtectionData = $this->buildOrdinaryProtectionData(
+				$data['ordinaryPageProtectionRecords'] ?? []
+			);
+
+			foreach ( $ordinaryProtectionData as $key => $value ) {
+				$data[$key] = $value;
+			}
+
 			$wikiSuspiciousIps = count( $data['suspiciousIps'] );
 			$wikiDynamicIps = count( $data['dynamicIps'] );
 			$ordinaryPageIps = count( $data['ordinaryPageIps'] );
@@ -2179,7 +2570,13 @@ class ServerHealthMail extends Maintenance {
 				&& $heavyOrdinaryShare >= self::ORDINARY_PAGE_CONCENTRATED_SHARE_THRESHOLD
 			);
 			$ordinaryIpTenSecondThresholdCounts = $this->getOrdinaryIpTenSecondThresholdCounts( $data );
-			$shortBurstIpTemporalDetails = $this->getOrdinaryShortBurstIpDetails( $data );
+			$shortBurstThreshold = $serverPressure
+				? self::ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD_WITH_PRESSURE
+				: self::ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD_WITHOUT_PRESSURE;
+			$shortBurstIpTemporalDetails = $this->getOrdinaryShortBurstIpDetails(
+				$data,
+				$shortBurstThreshold
+			);
 			$heavyOrdinaryIpTemporalDetails = $this->getOrdinaryIpTemporalDetails(
 				$data,
 				$heavyOrdinaryIpCounts
@@ -2191,6 +2588,8 @@ class ServerHealthMail extends Maintenance {
 					'label' => 'Crawler distribué anonyme de pages ordinaires possible',
 					'wiki' => $wiki,
 					'ordinary' => $data['ordinaryPageRequests'],
+					'ordinaryRaw' => $rawOrdinaryPageRequests,
+					'fileCacheConfirmed' => $fileCacheConfirmedRequests,
 					'ips' => $ordinaryPageIps,
 					'ipRatio' => $ordinaryPageRatio,
 					'nonDeclaredBotOrdinary' => $nonDeclaredBotOrdinaryRequests,
@@ -2225,6 +2624,8 @@ class ServerHealthMail extends Maintenance {
 					'wiki' => $wiki,
 					'ua' => $ua,
 					'ordinary' => $stats['requests'],
+					'ordinaryRaw' => $rawOrdinaryPageRequests,
+					'fileCacheConfirmed' => $fileCacheConfirmedRequests,
 					'ips' => $ipCount,
 					'requestsPerIp' => $ipCount > 0 ? $stats['requests'] / $ipCount : 0.0,
 					'logLines' => array_slice(
@@ -2241,8 +2642,10 @@ class ServerHealthMail extends Maintenance {
 					'label' => 'Burst concentré très rapide de pages ordinaires',
 					'wiki' => $wiki,
 					'ordinary' => $data['ordinaryPageRequests'],
+					'ordinaryRaw' => $rawOrdinaryPageRequests,
+					'fileCacheConfirmed' => $fileCacheConfirmedRequests,
 					'ips' => count( $shortBurstIpTemporalDetails ),
-					'shortBurstThreshold' => self::ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD,
+					'shortBurstThreshold' => $shortBurstThreshold,
 					'peak1' => $ordinaryPeak1,
 					'peak5' => $ordinaryPeak5,
 					'peak10' => $ordinaryPeak10,
@@ -2262,6 +2665,8 @@ class ServerHealthMail extends Maintenance {
 					'label' => 'Crawler intensif de pages ordinaires concentré sur des IP très actives',
 					'wiki' => $wiki,
 					'ordinary' => $data['ordinaryPageRequests'],
+					'ordinaryRaw' => $rawOrdinaryPageRequests,
+					'fileCacheConfirmed' => $fileCacheConfirmedRequests,
 					'heavyRequests' => $heavyOrdinaryRequests,
 					'ips' => $heavyOrdinaryIps,
 					'ordinaryShare' => $heavyOrdinaryShare,
@@ -2523,7 +2928,13 @@ class ServerHealthMail extends Maintenance {
 			}
 
 			if ( isset( $issue['ordinary'] ) ) {
-				$body .= "\tPages ordinaires : {$issue['ordinary']}\n";
+				if ( isset( $issue['ordinaryRaw'] ) ) {
+					$body .= "\tPages ordinaires brutes : {$issue['ordinaryRaw']}\n";
+					$body .= "\tHits file cache confirmés : {$issue['fileCacheConfirmed']}\n";
+					$body .= "\tPages ordinaires retenues pour la détection : {$issue['ordinary']}\n";
+				} else {
+					$body .= "\tPages ordinaires : {$issue['ordinary']}\n";
+				}
 			}
 
 			if ( isset( $issue['ipRatio'] ) ) {
@@ -2927,12 +3338,18 @@ class ServerHealthMail extends Maintenance {
 			$body .= ' | req/IP=' . number_format( $requestsPerIp, 1, ',', '' );
 			$body .= " | pages={$data['pageRequests']}";
 			$body .= " | ordinaires={$data['ordinaryPageRequests']}";
+			$body .= " | file cache confirmés={$data['ordinaryPageFileCacheConfirmedRequests']}";
+			$body .= ' | hors file cache=' . max(
+				0,
+				$data['ordinaryPageRequests'] - $data['ordinaryPageFileCacheConfirmedRequests']
+			);
 			$body .= " | bots déclarés={$data['ordinaryPageDeclaredBotRequests']}";
 			$body .= " | autres UA={$data['ordinaryPageNonDeclaredBotRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
 			$body .= " | rejets 418={$data['fastRejectedRequests']}";
 			$body .= " | HTTP 429={$data['http429Requests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
+			$body .= " | GET API={$data['apiGetRequests']}";
 			$body .= " | POST API={$data['apiPostRequests']}";
 			$body .= " | très suspectes={$data['suspiciousRequests']}\n";
 		}
@@ -2971,6 +3388,13 @@ class ServerHealthMail extends Maintenance {
 			$body .= "\n";
 			$body .= "Requêtes de pages : {$data['pageRequests']}\n";
 			$body .= "Pages ordinaires : {$data['ordinaryPageRequests']}\n";
+			$fileCacheConfirmed = (int)( $data['ordinaryPageFileCacheConfirmedRequests'] ?? 0 );
+			$fileCacheCandidateRequests = max( 0, $data['ordinaryPageRequests'] - $fileCacheConfirmed );
+			$body .= "Hits file cache confirmés : $fileCacheConfirmed\n";
+			$body .= 'IP distinctes sur hits file cache confirmés : ';
+			$body .= count( $data['ordinaryPageFileCacheConfirmedIps'] ?? [] ) . "\n";
+			$body .= "Pages ordinaires non confirmées file cache : $fileCacheCandidateRequests\n";
+			$body .= "Note : un hit file cache n’est confirmé que si le fichier existait avant la requête et si sa taille correspond exactement aux octets servis.\n";
 			$body .= 'IP distinctes sur pages ordinaires : ' . $ordinaryIpCount . "\n";
 			$body .= 'Ratio pages ordinaires/IP : ';
 			$body .= $ordinaryIpCount > 0
@@ -3000,6 +3424,8 @@ class ServerHealthMail extends Maintenance {
 			$body .= 'IP distinctes sur rejets HTTP 418 : ' . count( $data['fastRejectedIps'] ) . "\n";
 			$body .= "Réponses HTTP 429 observées à l’origine : {$data['http429Requests']}\n";
 			$body .= 'IP distinctes sur HTTP 429 : ' . count( $data['http429Ips'] ) . "\n";
+			$body .= "GET vers /w/api.php : {$data['apiGetRequests']}\n";
+			$body .= 'IP distinctes sur GET API : ' . count( $data['apiGetIps'] ) . "\n";
 			$body .= "POST vers /w/api.php : {$data['apiPostRequests']}\n";
 			$body .= "Requêtes très suspectes : {$data['suspiciousRequests']}\n";
 			$body .= 'IP distinctes sur requêtes très suspectes : ';
@@ -3056,6 +3482,7 @@ class ServerHealthMail extends Maintenance {
 		$body .= $this->buildSecurityDiagnostics( $data );
 		$body .= $this->buildTopOrdinaryPageIps( $data );
 		$body .= $this->buildOrdinaryPageBehaviorDiagnostics( $data );
+		$body .= $this->buildApiGetDiagnostics( $data );
 		$body .= $this->buildApiPostDiagnostics( $data );
 
 		return $body;
@@ -3466,6 +3893,23 @@ class ServerHealthMail extends Maintenance {
 			$body .= "\n";
 		}
 
+		$protectionData = $this->buildOrdinaryProtectionData( $data['ordinaryPageProtectionRecords'] ?? [] );
+		$protectionSecondCounts = $protectionData['ordinaryPageSecondCounts'];
+		$protectionSecondIps = $protectionData['ordinaryPageSecondIps'];
+		$body .= "\nAprès exclusion des hits file cache confirmés : ";
+		$body .= $protectionData['ordinaryPageRequests'] . ' page(s) ordinaire(s)';
+		$body .= ' | ' . count( $protectionData['ordinaryPageIps'] ) . " IP\n";
+
+		foreach ( [ 1, 5, 10 ] as $seconds ) {
+			$peak = $this->getOrdinaryPageWindowPeak(
+				$protectionSecondCounts,
+				$protectionSecondIps,
+				$seconds
+			);
+			$body .= "Pic retenu pour détection sur {$seconds} s : {$peak['requests']} requête(s)";
+			$body .= " | {$peak['ips']} IP\n";
+		}
+
 		$thresholdCounts = $this->getOrdinaryIpTenSecondThresholdCounts( $data );
 		$body .= "IP dépassant 5 pages ordinaires sur 10 s : {$thresholdCounts['over5']}\n";
 		$body .= "IP dépassant 8 pages ordinaires sur 10 s : {$thresholdCounts['over8']}\n";
@@ -3568,6 +4012,115 @@ class ServerHealthMail extends Maintenance {
 		if ( $shown === 0 ) {
 			$body .= "Aucun couple User-Agent + Referer sur pages ordinaires.\n\n";
 		}
+
+		return $body;
+	}
+
+	private function buildApiGetDiagnostics( array $data ): string {
+		$body = "GET vers /w/api.php\n";
+		$body .= "-------------------\n\n";
+		$body .= "Total : {$data['apiGetRequests']}\n";
+		$body .= 'IP différentes : ' . count( $data['apiGetIps'] ) . "\n";
+
+		if ( $data['apiGetRequests'] === 0 ) {
+			$body .= "Aucun GET vers /w/api.php dans la fenêtre analysée.\n\n";
+			return $body;
+		}
+
+		$actions = $data['apiGetActions'] ?? [];
+		$operations = $data['apiGetOperations'] ?? [];
+		$body .= 'Actions API distinctes : ' . count( $actions ) . "\n";
+		$body .= 'Opérations API distinctes : ' . count( $operations ) . "\n\n";
+		$ipCounts = $data['apiGetIpRequestCounts'] ?? [];
+		arsort( $ipCounts, SORT_NUMERIC );
+
+		$body .= "IP les plus actives sur GET API :\n";
+		$shown = 0;
+
+		foreach ( $ipCounts as $ip => $count ) {
+			$ipActions = $data['apiGetIpActions'][$ip] ?? [];
+			$ipOperations = $data['apiGetIpOperations'][$ip] ?? [];
+			arsort( $ipActions, SORT_NUMERIC );
+			arsort( $ipOperations, SORT_NUMERIC );
+			$distinctActionCount = count( $ipActions );
+			$distinctOperationCount = count( $ipOperations );
+			$heterogeneous = (
+				$count >= self::API_GET_HETEROGENEOUS_REQUEST_THRESHOLD
+				&& $distinctOperationCount >= self::API_GET_HETEROGENEOUS_OPERATION_THRESHOLD
+			);
+			$body .= "\t$count requête(s) | $ip | $distinctActionCount action(s)";
+			$body .= " | $distinctOperationCount opération(s) distincte(s)";
+
+			if ( $heterogeneous ) {
+				$body .= ' | forte diversité d’opérations API';
+			}
+
+			$body .= "\n";
+			$operationShown = 0;
+
+			foreach ( $ipOperations as $operation => $operationCount ) {
+				$body .= "\t\t$operationCount requête(s) | opération=$operation\n";
+				$operationShown++;
+
+				if ( $operationShown >= 8 ) {
+					break;
+				}
+			}
+
+			$shown++;
+
+			if ( $shown >= self::MAX_API_GET_IPS ) {
+				break;
+			}
+		}
+
+		uasort( $actions, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$body .= "\nActions API GET les plus fréquentes :\n";
+		$shown = 0;
+
+		foreach ( $actions as $action => $stats ) {
+			$body .= "\t{$stats['requests']} requête(s) | " . count( $stats['ips'] ) . " IP | action=$action\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_API_GET_ACTIONS ) {
+				break;
+			}
+		}
+
+		uasort( $operations, static function ( array $a, array $b ): int {
+			if ( $a['requests'] !== $b['requests'] ) {
+				return $b['requests'] <=> $a['requests'];
+			}
+
+			return count( $b['ips'] ) <=> count( $a['ips'] );
+		} );
+
+		$body .= "\nOpérations API GET les plus fréquentes :\n";
+		$shown = 0;
+
+		foreach ( $operations as $operation => $stats ) {
+			$body .= "\t{$stats['requests']} requête(s) | " . count( $stats['ips'] ) . " IP | opération=$operation\n";
+			$shown++;
+
+			if ( $shown >= self::MAX_API_GET_ACTIONS ) {
+				break;
+			}
+		}
+
+		$body .= "\nRequêtes GET API récentes :\n";
+
+		foreach ( array_slice( $data['recentApiGetLines'] ?? [], 0, 20 ) as $line ) {
+			$body .= "\t$line\n";
+		}
+
+		$body .= "\n";
 
 		return $body;
 	}
@@ -3922,12 +4475,18 @@ class ServerHealthMail extends Maintenance {
 			$body .= " | brutes=$rawCount";
 			$body .= " | internes ignorées={$data['internalRequests']}";
 			$body .= " | ordinaires={$data['ordinaryPageRequests']}";
+			$body .= " | file cache confirmés={$data['ordinaryPageFileCacheConfirmedRequests']}";
+			$body .= ' | hors file cache=' . max(
+				0,
+				$data['ordinaryPageRequests'] - $data['ordinaryPageFileCacheConfirmedRequests']
+			);
 			$body .= " | bots déclarés={$data['ordinaryPageDeclaredBotRequests']}";
 			$body .= " | autres UA={$data['ordinaryPageNonDeclaredBotRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
 			$body .= " | rejets 418={$data['fastRejectedRequests']}";
-			$body .= " | HTTP 429={$data['http429Requests']}\n";
+			$body .= " | HTTP 429={$data['http429Requests']}";
+			$body .= " | GET API={$data['apiGetRequests']}\n";
 		}
 
 		return $body;
