@@ -132,24 +132,22 @@ class ServerHealthMail extends Maintenance {
 	];
 
 	private array $fileCacheDirectories = [
-		'FR' => '/home/users/webmaster/www/fr.wikidebates.org/w/cache',
-		'EN' => '/home/users/webmaster/www/en.wikidebates.org/w/cache',
-		'DE' => '/home/users/webmaster/www/de.wikidebates.org/w/cache',
-		'ES' => '/home/users/webmaster/www/es.wikidebates.org/w/cache',
-		'IT' => '/home/users/webmaster/www/it.wikidebates.org/w/cache',
-		'PT' => '/home/users/webmaster/www/pt.wikidebates.org/w/cache',
-		'DEV' => '/home/users/webmaster/www/dev.wikidebates.org/w/cache',
+		'FR' => '/home/users/webmaster/www/farm.wikidebates.org/w/cache/file/fr',
+		'EN' => '/home/users/webmaster/www/farm.wikidebates.org/w/cache/file/en',
+		'DE' => '/home/users/webmaster/www/farm.wikidebates.org/w/cache/file/de',
+		'ES' => '/home/users/webmaster/www/farm.wikidebates.org/w/cache/file/es',
+		'IT' => '/home/users/webmaster/www/farm.wikidebates.org/w/cache/file/it',
+		'PT' => '/home/users/webmaster/www/farm.wikidebates.org/w/cache/file/pt',
 		'MILITOTHÈQUE' => '/home/users/webmaster/www/militotheque.org/w/cache',
 	];
 
 	private array $fileCacheDepths = [
 		'FR' => 1,
 		'EN' => 1,
-		'DE' => 1,
-		'ES' => 1,
-		'IT' => 1,
-		'PT' => 1,
-		'DEV' => 1,
+		'DE' => 0,
+		'ES' => 0,
+		'IT' => 0,
+		'PT' => 0,
 		'MILITOTHÈQUE' => 0,
 	];
 
