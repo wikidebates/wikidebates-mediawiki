@@ -1774,6 +1774,11 @@ class ServerHealthMail extends Maintenance {
 			'/application_default_credentials.json',
 			'/service-account.json',
 			'/service_account.json',
+			'/firebase-admin.json',
+			'/firebase-credentials.json',
+			'/gcp-key.json',
+			'/google-credentials.json',
+			'/sa.json',
 		];
 
 		foreach ( $secretMarkers as $marker ) {
@@ -1806,6 +1811,11 @@ class ServerHealthMail extends Maintenance {
 			'database.yml',
 			'secrets.yml',
 			'secrets.yaml',
+			'.gitlab-ci.yml',
+			'.gitlab-ci.yaml',
+			'.zshrc',
+			'.bashrc',
+			'.bash_profile',
 		];
 
 		if ( in_array( $basename, $sensitiveConfigNames, true ) ) {
@@ -1819,6 +1829,15 @@ class ServerHealthMail extends Maintenance {
 			)
 		) {
 			return 'Fichiers de configuration applicative';
+		}
+
+		if (
+			$decodedPath === '/firebase.json'
+			|| str_contains( $decodedPath, '/.vite/manifest.json' )
+			|| str_contains( $decodedPath, '/__vite_rsc_findsourcemapurl' )
+			|| str_ends_with( $decodedPath, '.php.map' )
+		) {
+			return 'Artefacts de build / source maps / Firebase';
 		}
 
 		return null;
