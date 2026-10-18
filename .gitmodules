@@ -109,3 +109,6 @@
 [submodule "extensions/VEForAll"]
 	path = extensions/VEForAll
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/VEForAll
+[submodule "extensions/Wikidebates"]
+	path = extensions/Wikidebates
+	url = git@github.com:wikidebates/wikidebates-extension.git
