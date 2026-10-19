@@ -1,5 +1,12 @@
 # CHANGELOG Wikidebates
 
+## Accents and composition in token fields
+- Let the browser finish dead-key accents and IME composition before searching
+  or splitting tokens. Opening suggestions must not interrupt a pending accent.
+- Preserve native Enter, Backspace and Tab behavior while composing, then resume
+  normal token selection after composition ends.
+- Add regression tests using the bundled Select2 and the actual token input class.
+
 ## Autocomplete reliability and targeted performance improvements
 - Ignore stale autocomplete responses, cancel obsolete requests even on cache hits,
   and release pending requests and change handlers when rebuilding a combobox.
