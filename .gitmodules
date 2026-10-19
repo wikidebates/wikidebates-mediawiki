@@ -8,7 +8,7 @@
 	branch = REL1_43
 [submodule "extensions/Cite"]
 	path = extensions/Cite
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Cite
+	url = https://github.com/wikimedia/mediawiki-extensions-Cite.git
 	branch = REL1_43
 [submodule "extensions/CodeEditor"]
 	path = extensions/CodeEditor
@@ -20,7 +20,7 @@
 	branch = REL1_43
 [submodule "extensions/Echo"]
 	path = extensions/Echo
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Echo
+	url = https://github.com/wikimedia/mediawiki-extensions-Echo.git
 	branch = REL1_43
 [submodule "extensions/InputBox"]
 	path = extensions/InputBox
@@ -40,7 +40,7 @@
 	branch = REL1_43
 [submodule "extensions/ParserFunctions"]
 	path = extensions/ParserFunctions
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ParserFunctions
+	url = https://github.com/wikimedia/mediawiki-extensions-ParserFunctions.git
 	branch = REL1_43
 [submodule "extensions/ReplaceText"]
 	path = extensions/ReplaceText
@@ -76,11 +76,11 @@
 	branch = REL1_43
 [submodule "extensions/VisualEditor"]
 	path = extensions/VisualEditor
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/VisualEditor
+	url = https://github.com/wikimedia/mediawiki-extensions-VisualEditor.git
 	branch = REL1_43
 [submodule "extensions/WikiEditor"]
 	path = extensions/WikiEditor
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/WikiEditor
+	url = https://github.com/wikimedia/mediawiki-extensions-WikiEditor.git
 	branch = REL1_43
 [submodule "skins/MinervaNeue"]
 	path = skins/MinervaNeue
