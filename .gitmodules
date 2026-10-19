@@ -201,3 +201,19 @@
 	path = extensions/WikiSEO
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/WikiSEO
 	branch = REL1_43
+[submodule "extensions/EmbedVideo"]
+	path = extensions/EmbedVideo
+	url = https://github.com/StarCitizenWiki/mediawiki-extensions-EmbedVideo.git
+	branch = master
+[submodule "extensions/ShortDescription"]
+	path = extensions/ShortDescription
+	url = https://github.com/StarCitizenTools/mediawiki-extensions-ShortDescription.git
+	branch = main
+[submodule "extensions/VariablesLua"]
+	path = extensions/VariablesLua
+	url = https://github.com/Liquipedia/VariablesLua.git
+	branch = master
+[submodule "extensions/CrawlerBurstProtection"]
+	path = extensions/CrawlerBurstProtection
+	url = git@github.com:wikidebates/CrawlerBurstProtection.git
+	branch = main
