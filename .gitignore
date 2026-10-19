@@ -172,3 +172,8 @@ Wikidebates-AutoParentLink.log
 
 # Fichiers temporaires
 git-add-dry-run.txt
+/extensions/Maps/
+/extensions/SemanticExtraSpecialProperties/
+/extensions/SemanticMediaWiki/
+/extensions/SemanticResultFormats/
+/extensions/SemanticScribunto/
