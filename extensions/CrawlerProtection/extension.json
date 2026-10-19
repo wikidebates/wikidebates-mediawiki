@@ -1,0 +1,94 @@
+{
+    "name": "CrawlerProtection",
+    "author": "[https://mywikis.com MyWikis LLC]",
+    "version": "1.7.0",
+    "url": "https://www.mediawiki.org/wiki/Extension:CrawlerProtection",
+    "descriptionmsg": "crawlerprotection-desc",
+    "type": "hook",
+    "requires": {
+        "MediaWiki": ">= 1.39.4"
+    },
+    "AutoloadNamespaces": {
+        "MediaWiki\\Extension\\CrawlerProtection\\": "includes/"
+    },
+    "HookHandlers": {
+        "main": {
+            "class": "MediaWiki\\Extension\\CrawlerProtection\\Hooks",
+            "services": [
+                "CrawlerProtection.CrawlerProtectionService"
+            ]
+        }
+    },
+    "Hooks": {
+        "ApiCheckCanExecute": "main",
+        "MediaWikiPerformAction": "main",
+        "RestCheckCanExecute": "main",
+        "SpecialPageBeforeExecute": "main"
+    },
+    "config": {
+        "CrawlerProtectedActions": {
+            "value": [
+                "history"
+            ],
+            "merge_strategy": "provide_default"
+        },
+        "CrawlerProtectedApiModules": {
+            "value": [],
+            "merge_strategy": "provide_default"
+        },
+        "CrawlerProtectedSpecialPages": {
+            "value": [
+                "mobilediff",
+                "recentchangeslinked",
+                "whatlinkshere"
+            ],
+            "merge_strategy": "provide_default"
+        },
+        "CrawlerProtectedQueryParams": {
+            "value": [
+                "target"
+            ],
+            "merge_strategy": "provide_default"
+        },
+        "CrawlerProtectedRestPaths": {
+            "value": [],
+            "merge_strategy": "provide_default"
+        },
+        "CrawlerProtectionRawDenial": {
+            "value": false
+        },
+        "CrawlerProtectionUse418": {
+            "value": false
+        },
+        "CrawlerProtectionRawDenialHeader": {
+            "value": "HTTP/1.0 403 Forbidden"
+        },
+        "CrawlerProtectionRawDenialText": {
+            "value": ""
+        },
+        "CrawlerProtectionAllowedIPs": {
+            "value": [],
+            "merge_strategy": "provide_default"
+        },
+        "CrawlerProtectionProtectRevisions": {
+            "value": true
+        },
+        "CrawlerProtectionTreatTempUsersAsAnon": {
+            "value": false
+        },
+        "CrawlerProtectionTrustXForwardedFor": {
+            "value": false
+        }
+    },
+    "ServiceWiringFiles": [
+        "includes/ServiceWiring.php"
+    ],
+    "license-name": "MIT",
+    "Tests": {
+        "phpunit": "tests/phpunit"
+    },
+    "MessagesDirs": {
+        "CrawlerProtection": "i18n"
+    },
+    "manifest_version": 2
+}
