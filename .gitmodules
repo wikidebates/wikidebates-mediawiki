@@ -90,10 +90,6 @@
 	path = skins/Vector
 	url = https://github.com/wikidebates/wikidebates-mediawiki-vector.git
 	branch = wikidebates-REL1_43-vector-2026-07-11
-[submodule "vendor"]
-	path = vendor
-	url = git@github.com:wikidebates/wikidebates-mediawiki-vendor.git
-	branch = REL1_43
 [submodule "extensions/Comments"]
 	path = extensions/Comments
 	url = https://github.com/wikimedia/mediawiki-extensions-Comments.git
