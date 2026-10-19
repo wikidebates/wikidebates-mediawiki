@@ -23,9 +23,19 @@ selecting another token. Expect `ê` and `ö`, including after saving and reopen
 the form. Also check normal Enter/Tab selection and token deletion. Test the
 browsers and keyboard layouts used on the wiki.
 
-After the composition fix, all 22 JavaScript checks pass: 12 combobox checks and
-10 token checks. Before the fix, the new checks reproduced premature searches
-and token changes during composition.
+After the composition and focus fixes, all 26 JavaScript checks pass: 12 combobox
+checks and 14 token checks. Before the fixes, the new checks reproduced premature
+searches, token changes during composition and refocusing after partial/full text
+deletion. Focus regressions use native event listeners: jQuery listeners attached
+to the input are themselves removed by the old selection redraw and cannot detect
+the subsequent focus event reliably.
+
+A local Chromium check also reproduced an asynchronous native focus event after
+deleting text before the focus fix, and no such event afterwards; token selection
+and Backspace editing still worked. Firefox with the user's actual keyboard layout
+has not been exercised here. In that browser, also check deleting part or all of
+the typed text, then immediately entering a dead-key accent; repeat after using
+Backspace in an empty field to bring the last token back for editing.
 
 The PHP tests use MediaWiki's integration runner and test database. They cover
 invalid/missing mapping templates, empty values, category cycles and duplicate

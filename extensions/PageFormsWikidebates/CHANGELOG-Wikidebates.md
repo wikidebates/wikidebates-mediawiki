@@ -1,5 +1,14 @@
 # CHANGELOG Wikidebates
 
+## Preserve token input focus after deletion
+- Keep the inline search input attached while refreshing selected tokens instead
+  of removing and refocusing it. An asynchronous refresh after deleting text or
+  cleaning up old suggestions must not interrupt a pending dead-key accent.
+- Insert token choices before the existing input to preserve their order without
+  moving the input. Only restore focus after a refresh if it was actually lost.
+- Add native focus-event regressions for partial/full deletion, composition during
+  asynchronous updates and Backspace token editing.
+
 ## Accents and composition in token fields
 - Let the browser finish dead-key accents and IME composition before searching
   or splitting tokens. Opening suggestions must not interrupt a pending accent.
