@@ -129,7 +129,9 @@ const Sortable = require( 'ext.pageforms.sortable' );
 		});
 
 		$(inputData.$container[0]).on("keyup",(e) => {
-			if ( existingValuesOnly ) {
+			const originalEvent = e.originalEvent || e;
+			if ( existingValuesOnly || inputData.selection._isComposing ||
+				originalEvent.isComposing || e.which === 229 ) {
 				return ;
 			}
 			if ( e.key === 'Tab' ) {
