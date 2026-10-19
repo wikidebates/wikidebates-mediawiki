@@ -1,0 +1,293 @@
+name: Continuous Integration
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  EXTNAME: CrawlerProtection
+  MW_INSTALL_PATH: ${{ github.workspace }}
+
+jobs:
+  version:
+    name: Version Bump
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check override permission
+        id: override
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          permission=$(gh api \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --jq '.permission' \
+            "repos/${REPOSITORY}/collaborators/${ACTOR}/permission" 2>/dev/null) || permission="none"
+          if [[ $permission == admin || $permission == maintain ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Version check overridden by ${ACTOR} (${permission})."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Test version check
+        run: .github/scripts/check-version-bump.test.sh
+      - name: Check version bump
+        if: steps.override.outputs.enabled != 'true'
+        env:
+          BASE_REVISION: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_REVISION: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: .github/scripts/check-version-bump.sh "$BASE_REVISION" "$HEAD_REVISION"
+
+  i18n:
+    name: i18n Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check qqq.json completeness
+        run: .github/scripts/check-i18n-qqq.sh
+
+  sast:
+    name: SAST
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Setup Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run Semgrep for PHP
+        run: |
+          python -m venv .semgrep
+          .semgrep/bin/pip install semgrep==1.170.1
+          .semgrep/bin/semgrep scan --config p/php --include '*.php' --exclude vendor --exclude build \
+            --sarif --output semgrep.sarif .
+
+      - name: Upload Semgrep results to GitHub Security
+        # Pull requests from forks only get a read-only token, so the upload cannot succeed there.
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-php
+
+      - name: Run Semgrep for shell
+        run: |
+          .semgrep/bin/semgrep scan --config p/security-audit --include '*.sh' --exclude vendor --exclude build \
+            --sarif --output semgrep-shell.sarif .
+
+      - name: Upload shell Semgrep results to GitHub Security
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: semgrep-shell.sarif
+          category: semgrep-shell
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
+        env:
+          SHELLCHECK_OPTS: --shell=bash
+        with:
+          check_together: true
+          scandir: ./.github/scripts
+          severity: error
+          version: v0.10.0
+
+  trivy:
+    name: Trivy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Setup Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          limit-severities-for-sarif: true
+          # Findings are reported through the Security tab instead of failing the build.
+          exit-code: '0'
+
+      - name: Upload Trivy results to GitHub Security
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  style:
+    name: Code Style
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+        php: [ '8.2', '8.3', '8.4' ]
+        mediawiki: [ REL1_43, REL1_44, REL1_45 ]
+        include:
+          - os: ubuntu-latest
+            php: '7.4'
+            mediawiki: REL1_39
+          - os: ubuntu-latest
+            php: '8.1'
+            mediawiki: REL1_39
+    steps:
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl
+          coverage: none
+          tools: composer
+      - name: Setup MediaWiki
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: wikimedia/mediawiki
+          ref: ${{ matrix.mediawiki }}
+      - name: Setup Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: extensions/${{ env.EXTNAME }}
+      - name: Setup Composer
+        # Don't block insecure packages because MediaWiki might be using outdated dependencies, which shouldn't block the extension's pipelines from running
+        run: |
+          echo '{"extra":{"merge-plugin":{"include":["extensions/*/composer.json","skins/*/composer.json"]}}}' > composer.local.json
+          # composer-merge-plugin does not merge the "config" section from composer.local.json, so set the advisory policy on the root composer.json directly
+          composer config --no-plugins policy.advisories.block false
+          composer update
+          composer update
+      - name: Lint
+        run: ./vendor/bin/parallel-lint --exclude node_modules --exclude vendor extensions/${{ env.EXTNAME }}
+      - name: PHP Code Sniffer
+        run: cd extensions/${{ env.EXTNAME }} && ../../vendor/bin/phpcs -sp
+      - name: Minus-x
+        # MediaWiki only ships mediawiki/minus-x in its development dependencies from 1.43 onwards,
+        # and composer-merge-plugin does not install the extension's own development dependencies.
+        # The check is version independent, so running it on the newer branches is enough.
+        if: matrix.mediawiki != 'REL1_39'
+        run: cd extensions/${{ env.EXTNAME }} && ../../vendor/bin/minus-x check .
+
+  security:
+    name: Static Analysis
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+        # phan is broken on php 8.4 for some MW versions
+        php: [ '8.2', '8.3' ]
+        mediawiki: [ REL1_43, REL1_44, REL1_45 ]
+        include:
+          - os: ubuntu-latest
+            php: '7.4'
+            mediawiki: REL1_39
+          - os: ubuntu-latest
+            php: '8.1'
+            mediawiki: REL1_39
+    steps:
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl, ast
+          coverage: none
+          tools: composer
+      - name: Setup MediaWiki
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: wikimedia/mediawiki
+          ref: ${{ matrix.mediawiki }}
+      - name: Setup Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: extensions/${{ env.EXTNAME }}
+      - name: Setup Composer
+        # Don't block insecure packages because MediaWiki might be using outdated dependencies, which shouldn't block the extension's pipelines from running
+        run: |
+          echo '{"extra":{"merge-plugin":{"include":["extensions/*/composer.json","skins/*/composer.json"]}}}' > composer.local.json
+          # composer-merge-plugin does not merge the "config" section from composer.local.json, so set the advisory policy on the root composer.json directly
+          composer config --no-plugins policy.advisories.block false
+          composer update
+          composer update
+      - name: Phan
+        run: ./vendor/bin/phan -d extensions/${{ env.EXTNAME }} --minimum-target-php-version=7.4 --long-progress-bar
+  phpunit:
+    name: Unit Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+        php: [ '8.2', '8.3', '8.4' ]
+        mediawiki: [ REL1_43, REL1_44, REL1_45 ]
+        include:
+          # REL1_43/PHP 8.2 also collects code coverage.
+          - os: ubuntu-latest
+            php: '8.2'
+            mediawiki: REL1_43
+            coverage: pcov
+          # REL1_39 jobs
+          - os: ubuntu-latest
+            php: '7.4'
+            mediawiki: REL1_39
+            coverage: none
+          - os: ubuntu-latest
+            php: '8.2'
+            mediawiki: REL1_39
+            coverage: none
+    steps:
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl, ast
+          coverage: ${{ matrix.coverage || 'none' }}
+          tools: composer
+      - name: Setup MediaWiki
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: wikimedia/mediawiki
+          ref: ${{ matrix.mediawiki }}
+      - name: Setup Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: extensions/${{ env.EXTNAME }}
+      - name: Setup Composer
+        # Don't block insecure packages because MediaWiki might be using outdated dependencies, which shouldn't block the extension's pipelines from running
+        run: |
+          echo '{"extra":{"merge-plugin":{"include":["extensions/*/composer.json","skins/*/composer.json"]}}}' > composer.local.json
+          # composer-merge-plugin does not merge the "config" section from composer.local.json, so set the advisory policy on the root composer.json directly
+          composer config --no-plugins policy.advisories.block false
+          composer update
+          composer update
+      - name: Install MediaWiki
+        run: php maintenance/install.php --dbtype=sqlite --with-extensions --pass=UnitTestingAdminPassword519 UnitTesting WikiAdmin
+      - name: Phpunit
+        run: |
+          FLAGS=""
+          [ "${{ matrix.coverage }}" = "pcov" ] && FLAGS="--coverage-text"
+          ./vendor/bin/phpunit $FLAGS -- extensions/${{ env.EXTNAME }}/tests/phpunit
