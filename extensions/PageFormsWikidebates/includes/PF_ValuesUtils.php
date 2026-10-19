@@ -290,6 +290,8 @@ SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode
 		$pages = [];
 		$sortkeys = [];
 		$maxResults = self::getMaxValuesToRetrieve( $substring );
+		// The schema is the same for every category traversed in this request.
+		$hasCategoryTitle = $db->fieldExists( 'categorylinks', 'cl_to' );
 
 		for ( $level = $num_levels; $level > 0; $level-- ) {
 			$newcategories = [];
@@ -301,7 +303,7 @@ SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode
 				$conditions = [];
 				$join = [ 'categorylinks' => [ 'JOIN', 'cl_from = page_id' ] ];
 
-				if ( $db->fieldExists( 'categorylinks', 'cl_to' ) ) {
+				if ( $hasCategoryTitle ) {
 					$conditions['cl_to'] = $category;
 				} else {
 					// MW 1.45+
@@ -431,7 +433,8 @@ SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode
 		array_multisort( $sortkeys, $pages );
 		$newPages = [];
 		foreach ( $pages as $key => $value ) {
-			$fixedKey = rtrim( $key, '@' );
+			// Remove only the marker appended by the caller, not a title's own '@'.
+			$fixedKey = substr( $key, 0, -1 );
 			$newPages[$fixedKey] = $value;
 		}
 		return $newPages;
