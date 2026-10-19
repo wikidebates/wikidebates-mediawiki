@@ -113,3 +113,6 @@
 [submodule "extensions/Wikidebates"]
 	path = extensions/Wikidebates
 	url = git@github.com:wikidebates/wikidebates-extension.git
+[submodule "extensions/CrawlerBurstProtection"]
+	path = extensions/CrawlerBurstProtection
+	url = git@github.com:wikidebates/CrawlerBurstProtection.git
