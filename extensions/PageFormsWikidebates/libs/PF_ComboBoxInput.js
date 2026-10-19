@@ -266,8 +266,8 @@
 
 		this.$element.find( 'option' ).each( function () {
 			const value = $( this ).attr( 'value' ) || '';
-			const text = $( this ).text() || value;
-			if ( value === '' && text === '' ) {
+			const optionText = $( this ).text() || value;
+			if ( value === '' && optionText === '' ) {
 				return;
 			}
 			values.push( {
@@ -298,6 +298,16 @@
 		return this.rememberRequest( this.getPageCacheKey( term ), results );
 	};
 
+	comboboxProto.abortPendingRequest = function () {
+		const pendingRequests = pf.ComboBoxInput.static.pendingRequests;
+		const request = pendingRequests[ this.id ];
+		// Invalidate callbacks before abort(), which can synchronously reject the request.
+		delete pendingRequests[ this.id ];
+		if ( request && typeof request.abort === 'function' ) {
+			request.abort();
+		}
+	};
+
 	comboboxProto.getAjaxOptions = function () {
 		const self = this;
 		const inputId = this.id;
@@ -311,37 +321,42 @@
 				const staticData = pf.ComboBoxInput.static;
 				const requestData = params.data || {};
 				const cacheKey = self.getRequestCacheKey( requestData );
-				let xhr;
+				self.abortPendingRequest();
 
 				if ( staticData.requestCache.has( cacheKey ) ) {
-					success( staticData.requestCache.get( cacheKey ) );
+					// Keep frequently reused suggestions in the bounded cache.
+					const response = staticData.requestCache.get( cacheKey );
+					self.rememberRequest( cacheKey, response );
+					success( response );
 					return {
 						abort: function () {}
 					};
 				}
 
-				if ( staticData.pendingRequests[ inputId ] && typeof staticData.pendingRequests[ inputId ].abort === 'function' ) {
-					staticData.pendingRequests[ inputId ].abort();
-				}
-
-				xhr = $.ajax( {
+				const xhr = $.ajax( {
 					url: mw.util.wikiScript( 'api' ),
 					dataType: 'json',
-					data: requestData,
-					success: function ( response ) {
-						delete staticData.pendingRequests[ inputId ];
-						self.rememberRequest( cacheKey, response );
-						success( response );
-					},
-					error: function ( jqXHR, textStatus, errorThrown ) {
-						delete staticData.pendingRequests[ inputId ];
-						if ( textStatus !== 'abort' ) {
-							failure( jqXHR, textStatus, errorThrown );
-						}
-					}
+					data: requestData
 				} );
 
+				// Register before attaching callbacks, even for an already settled jqXHR.
 				staticData.pendingRequests[ inputId ] = xhr;
+				xhr.done( ( response ) => {
+					if ( staticData.pendingRequests[ inputId ] !== xhr ) {
+						return;
+					}
+					delete staticData.pendingRequests[ inputId ];
+					self.rememberRequest( cacheKey, response );
+					success( response );
+				} ).fail( ( jqXHR, textStatus, errorThrown ) => {
+					if ( staticData.pendingRequests[ inputId ] !== xhr ) {
+						return;
+					}
+					delete staticData.pendingRequests[ inputId ];
+					if ( textStatus !== 'abort' ) {
+						failure( jqXHR, textStatus, errorThrown );
+					}
+				} );
 				return xhr;
 			},
 			processResults: function ( data, params ) {
@@ -354,6 +369,11 @@
 		};
 	};
 
+	comboboxProto.destroy = function ( element ) {
+		this.abortPendingRequest();
+		element.off( '.pfComboBox' ).removeClass( 'pf-combobox-initialized' );
+		pf.select2.base.prototype.destroy.call( this, element );
+	};
 
 	comboboxProto.refresh = function ( element ) {
 		const $element = $( element );
@@ -370,13 +390,15 @@
 		this.existingValuesOnly = $element.attr( 'existingvaluesonly' ) === 'true';
 
 		const isDependentField = this.dependentOn() !== null;
+		// Local HTML options are also a data source; read them before rebuilding.
+		const localData = !this.autocompletedatatype && !isDependentField ? this.getLocalData() : null;
 
 		if ( currentOption.length ) {
 			currentLabel = currentOption.text() || currentLabel;
 		}
 
 		if ( isDependentField && Array.isArray( dependentValues ) && currentValue !== '' ) {
-			shouldKeepValue = dependentValues.indexOf( currentValue ) !== -1 || !this.existingValuesOnly;
+			shouldKeepValue = dependentValues.includes( currentValue ) || !this.existingValuesOnly;
 		}
 
 		if ( $element.data( 'select2' ) ) {
@@ -385,6 +407,11 @@
 		$element.off( '.pfComboBox' );
 		$element.removeClass( 'pf-combobox-initialized' );
 		$element.find( 'option' ).not( '[value=""]' ).remove();
+		if ( localData !== null ) {
+			localData.forEach( ( item ) => {
+				$element.append( new Option( item.text, item.id, false, false ) );
+			} );
+		}
 
 		if ( shouldKeepValue && currentValue !== '' ) {
 			$element.attr( 'data-value', currentValue );
