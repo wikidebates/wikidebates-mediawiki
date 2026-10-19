@@ -205,3 +205,6 @@
 	path = extensions/CrawlerBurstProtection
 	url = git@github.com:wikidebates/CrawlerBurstProtection.git
 	branch = main
+[submodule "extensions/CrawlerProtection/build"]
+	path = extensions/CrawlerProtection/build
+	url = https://github.com/gesinn-it-pub/docker-compose-ci.git
