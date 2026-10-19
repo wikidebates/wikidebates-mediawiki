@@ -1746,7 +1746,8 @@ S2.define('select2/selection/multiple',[
 
   MultipleSelection.prototype.clear = function () {
     var $rendered = this.$selection.find('.select2-selection__rendered');
-    $rendered.empty();
+    // Wikidebates: keep the focused input attached, including during composition.
+    $rendered.children().not('.select2-search--inline').remove();
     $rendered.removeAttr('title');
   };
 
@@ -1799,7 +1800,13 @@ S2.define('select2/selection/multiple',[
 
     var $rendered = this.$selection.find('.select2-selection__rendered');
 
-    Utils.appendMany($rendered, $selections);
+    var $search = $rendered.children('.select2-search--inline');
+
+    if ($search.length) {
+      $search.before($selections);
+    } else {
+      Utils.appendMany($rendered, $selections);
+    }
   };
 
   return MultipleSelection;
@@ -2183,11 +2190,15 @@ S2.define('select2/selection/search',[
 
     decorated.call(this, data);
 
-    this.$selection.find('.select2-selection__rendered')
-                   .append(this.$searchContainer);
+    var $rendered = this.$selection.find('.select2-selection__rendered');
+
+    // Moving an already attached search input also interrupts native dead keys.
+    if (this.$searchContainer.parent()[0] !== $rendered[0]) {
+      $rendered.append(this.$searchContainer);
+    }
 
     this.resizeSearch();
-    if (searchHadFocus) {
+    if (searchHadFocus && this.$search[0] !== document.activeElement) {
       this.$search.trigger('focus');
     }
   };

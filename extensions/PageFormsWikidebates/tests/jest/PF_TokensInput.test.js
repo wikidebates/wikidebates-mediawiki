@@ -115,3 +115,69 @@ test( 'ordinary separators and Enter still select accented tokens', () => {
 	expect( event.defaultPrevented ).toBe( true );
 	expect( element.val() ).toEqual( [ 'forêt', 'Noël', 'hôtel' ] );
 } );
+
+function settleMutations() {
+	return new Promise( ( resolve ) => {
+		setTimeout( resolve, 0 );
+	} );
+}
+
+test.each( [ 'forê', '' ] )( 'deleting to "%s" does not refocus the search during a pending accent', async ( remainingText ) => {
+	input( 'forêt' );
+	await settleMutations();
+	const focus = jest.fn();
+	search[ 0 ].addEventListener( 'focus', focus );
+
+	keyboard( 'keydown', 'Backspace', 8 );
+	input( remainingText );
+	keyboard( 'keyup', 'Backspace', 8 );
+	keyboard( 'keydown', 'Dead', 219 );
+	keyboard( 'keyup', 'Dead', 219 );
+	// Removing the previous, unselected tag queues a native MutationObserver update.
+	await settleMutations();
+	expect( focus ).not.toHaveBeenCalled();
+	expect( document.activeElement ).toBe( search[ 0 ] );
+	input( remainingText + 'ö' );
+	expect( search.val() ).toBe( remainingText + 'ö' );
+} );
+
+test( 'an asynchronous selection update keeps the composing input attached and focused', async () => {
+	input( 'ancien' );
+	await settleMutations();
+	const focus = jest.fn();
+	search[ 0 ].addEventListener( 'focus', focus );
+	search.trigger( 'compositionstart' );
+	input( 'nouveau', true );
+	element.append( new Option( 'Déjà choisi', 'Déjà choisi', true, true ) ).trigger( 'change' );
+	await settleMutations();
+
+	expect( focus ).not.toHaveBeenCalled();
+	expect( document.activeElement ).toBe( search[ 0 ] );
+	expect( search.val() ).toBe( 'nouveau' );
+	expect( element.val() ).toEqual( [ 'Déjà choisi' ] );
+	expect( widget.$selection.find( '.select2-selection__choice' ).last().next()[ 0 ] )
+		.toBe( widget.selection.$searchContainer[ 0 ] );
+	search.val( 'nouvelö' ).trigger( 'compositionend' );
+	expect( query ).toHaveBeenLastCalledWith( expect.objectContaining( { term: 'nouvelö' } ), expect.any( Function ) );
+} );
+
+test( 'Backspace restores a token for editing, then accepts accented replacement text', async () => {
+	input( 'forêt;' );
+	await settleMutations();
+	const focus = jest.fn();
+	search[ 0 ].addEventListener( 'focus', focus );
+	keyboard( 'keydown', 'Backspace', 8 );
+	keyboard( 'keyup', 'Backspace', 8 );
+	// Closing the dropdown may focus synchronously; no later redraw may do so.
+	focus.mockClear();
+	await settleMutations();
+	expect( element.val() ).toEqual( [] );
+	expect( search.val() ).toBe( 'forêt' );
+	expect( focus ).not.toHaveBeenCalled();
+	input( '' );
+	keyboard( 'keydown', 'Dead', 219 );
+	keyboard( 'keyup', 'Dead', 219 );
+	await settleMutations();
+	input( 'ö;' );
+	expect( element.val() ).toEqual( [ 'ö' ] );
+} );
