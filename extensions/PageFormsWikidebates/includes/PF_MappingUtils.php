@@ -169,8 +169,11 @@ class PFMappingUtils {
 		string $mappingTemplate,
 		bool $useDisplayTitle = false
 	): array {
+		if ( $values === [] ) {
+			return [];
+		}
 		$title = Title::makeTitleSafe( NS_TEMPLATE, $mappingTemplate );
-		$templateExists = $title->exists();
+		$templateExists = $title !== null && $title->exists();
 		$res = [];
 		foreach ( $values as $index => $value ) {
 			// if ( $useDisplayTitle ) {

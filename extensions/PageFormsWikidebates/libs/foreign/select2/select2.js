@@ -1746,7 +1746,8 @@ S2.define('select2/selection/multiple',[
 
   MultipleSelection.prototype.clear = function () {
     var $rendered = this.$selection.find('.select2-selection__rendered');
-    $rendered.empty();
+    // Wikidebates: keep the focused input attached, including during composition.
+    $rendered.children().not('.select2-search--inline').remove();
     $rendered.removeAttr('title');
   };
 
@@ -1799,7 +1800,13 @@ S2.define('select2/selection/multiple',[
 
     var $rendered = this.$selection.find('.select2-selection__rendered');
 
-    Utils.appendMany($rendered, $selections);
+    var $search = $rendered.children('.select2-search--inline');
+
+    if ($search.length) {
+      $search.before($selections);
+    } else {
+      Utils.appendMany($rendered, $selections);
+    }
   };
 
   return MultipleSelection;
@@ -1978,6 +1985,14 @@ S2.define('select2/selection/search',[
     decorated.call(this, $element, options);
   }
 
+  // Wikidebates: leave dead keys and IME input to the browser until committed.
+  function isCompositionEvent (evt) {
+    var originalEvent = evt.originalEvent || evt;
+
+    return originalEvent.isComposing || evt.key === 'Dead' ||
+      evt.key === 'Process' || evt.which === 229 || originalEvent.keyCode === 229;
+  }
+
   Search.prototype.render = function (decorated) {
     var $search = $(
       '<li class="select2-search select2-search--inline">' +
@@ -2046,8 +2061,24 @@ S2.define('select2/selection/search',[
       self._handleBlur(evt);
     });
 
+    this.$selection.on('compositionstart', '.select2-search--inline', function () {
+      self._isComposing = true;
+      self._keyUpPrevented = false;
+    });
+
+    this.$selection.on('compositionend', '.select2-search--inline', function () {
+      self._isComposing = false;
+      self._keyUpPrevented = false;
+      self.handleSearch();
+    });
+
     this.$selection.on('keydown', '.select2-search--inline', function (evt) {
       evt.stopPropagation();
+
+      if (self._isComposing || isCompositionEvent(evt)) {
+        self._keyUpPrevented = false;
+        return;
+      }
 
       self.trigger('keypress', evt);
 
@@ -2107,6 +2138,10 @@ S2.define('select2/selection/search',[
       'keyup.search input.search',
       '.select2-search--inline',
       function (evt) {
+        if (self._isComposing || isCompositionEvent(evt)) {
+          return;
+        }
+
         // IE will trigger the `input` event when a placeholder is used on a
         // search box. To get around this issue, we are forced to ignore all
         // `input` events in IE and keep using `keyup`.
@@ -2155,16 +2190,24 @@ S2.define('select2/selection/search',[
 
     decorated.call(this, data);
 
-    this.$selection.find('.select2-selection__rendered')
-                   .append(this.$searchContainer);
+    var $rendered = this.$selection.find('.select2-selection__rendered');
+
+    // Moving an already attached search input also interrupts native dead keys.
+    if (this.$searchContainer.parent()[0] !== $rendered[0]) {
+      $rendered.append(this.$searchContainer);
+    }
 
     this.resizeSearch();
-    if (searchHadFocus) {
+    if (searchHadFocus && this.$search[0] !== document.activeElement) {
       this.$search.trigger('focus');
     }
   };
 
   Search.prototype.handleSearch = function () {
+    if (this._isComposing) {
+      return;
+    }
+
     this.resizeSearch();
 
     if (!this._keyUpPrevented) {
