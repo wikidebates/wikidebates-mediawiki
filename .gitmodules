@@ -1,10 +1,10 @@
 [submodule "extensions/AbuseFilter"]
 	path = extensions/AbuseFilter
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/AbuseFilter
+	url = https://github.com/wikimedia/mediawiki-extensions-AbuseFilter.git
 	branch = REL1_43
 [submodule "extensions/CategoryTree"]
 	path = extensions/CategoryTree
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/CategoryTree
+	url = https://github.com/wikimedia/mediawiki-extensions-CategoryTree.git
 	branch = REL1_43
 [submodule "extensions/Cite"]
 	path = extensions/Cite
@@ -12,11 +12,11 @@
 	branch = REL1_43
 [submodule "extensions/CodeEditor"]
 	path = extensions/CodeEditor
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/CodeEditor
+	url = https://github.com/wikimedia/mediawiki-extensions-CodeEditor.git
 	branch = REL1_43
 [submodule "extensions/ConfirmEdit"]
 	path = extensions/ConfirmEdit
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ConfirmEdit
+	url = https://github.com/wikimedia/mediawiki-extensions-ConfirmEdit.git
 	branch = REL1_43
 [submodule "extensions/Echo"]
 	path = extensions/Echo
@@ -24,19 +24,19 @@
 	branch = REL1_43
 [submodule "extensions/InputBox"]
 	path = extensions/InputBox
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/InputBox
+	url = https://github.com/wikimedia/mediawiki-extensions-InputBox.git
 	branch = REL1_43
 [submodule "extensions/Interwiki"]
 	path = extensions/Interwiki
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Interwiki
+	url = https://github.com/wikimedia/mediawiki-extensions-Interwiki.git
 	branch = REL1_43
 [submodule "extensions/MultimediaViewer"]
 	path = extensions/MultimediaViewer
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/MultimediaViewer
+	url = https://github.com/wikimedia/mediawiki-extensions-MultimediaViewer.git
 	branch = REL1_43
 [submodule "extensions/Nuke"]
 	path = extensions/Nuke
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Nuke
+	url = https://github.com/wikimedia/mediawiki-extensions-Nuke.git
 	branch = REL1_43
 [submodule "extensions/ParserFunctions"]
 	path = extensions/ParserFunctions
@@ -44,15 +44,15 @@
 	branch = REL1_43
 [submodule "extensions/ReplaceText"]
 	path = extensions/ReplaceText
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ReplaceText
-	branch = REL1_43
+	url = git@github.com:wikidebates/wikidebates-replacetext.git
+	branch = integration-REL1_43-1.43.11
 [submodule "extensions/Scribunto"]
 	path = extensions/Scribunto
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Scribunto
+	url = https://github.com/wikimedia/mediawiki-extensions-Scribunto.git
 	branch = REL1_43
 [submodule "extensions/SpamBlacklist"]
 	path = extensions/SpamBlacklist
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/SpamBlacklist
+	url = https://github.com/wikimedia/mediawiki-extensions-SpamBlacklist.git
 	branch = REL1_43
 [submodule "extensions/SyntaxHighlight_GeSHi"]
 	path = extensions/SyntaxHighlight_GeSHi
@@ -72,7 +72,7 @@
 	branch = wikidebates-REL1_43
 [submodule "extensions/TitleBlacklist"]
 	path = extensions/TitleBlacklist
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/TitleBlacklist
+	url = https://github.com/wikimedia/mediawiki-extensions-TitleBlacklist.git
 	branch = REL1_43
 [submodule "extensions/VisualEditor"]
 	path = extensions/VisualEditor
@@ -84,8 +84,8 @@
 	branch = REL1_43
 [submodule "skins/MinervaNeue"]
 	path = skins/MinervaNeue
-	url = https://gerrit.wikimedia.org/r/mediawiki/skins/MinervaNeue
-	branch = REL1_43
+	url = git@github.com:wikidebates/MinervaNeue.git
+	branch = integration-REL1_43-1.43.11
 [submodule "skins/Vector"]
 	path = skins/Vector
 	url = https://github.com/wikidebates/wikidebates-mediawiki-vector.git
@@ -96,16 +96,20 @@
 	branch = REL1_43
 [submodule "extensions/Comments"]
 	path = extensions/Comments
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/Comments
+	url = https://github.com/wikimedia/mediawiki-extensions-Comments.git
+	branch = REL1_43
 [submodule "extensions/ContactPage"]
 	path = extensions/ContactPage
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ContactPage
+	url = git@github.com:wikidebates/wikidebates-contactpage.git
+	branch = integration-REL1_43-1.43.11
 [submodule "extensions/HitCounters"]
 	path = extensions/HitCounters
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/HitCounters
+	url = git@github.com:wikidebates/wikidebates-hitcounters.git
+	branch = integration-master-1.43.11
 [submodule "extensions/InterwikiExtracts"]
 	path = extensions/InterwikiExtracts
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/InterwikiExtracts
+	url = https://github.com/wikimedia/mediawiki-extensions-InterwikiExtracts.git
+	branch = REL1_43
 [submodule "extensions/VEForAll"]
 	path = extensions/VEForAll
 	url = git@github.com:wikidebates/wikidebates-veforall.git
