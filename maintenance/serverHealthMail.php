@@ -68,6 +68,9 @@ class ServerHealthMail extends Maintenance {
 	private const ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD_WITH_PRESSURE = 15;
 	private const ORDINARY_PAGE_SHORT_BURST_10S_THRESHOLD_WITHOUT_PRESSURE = 30;
 
+	private const LOAD_PHP_PRESSURE_REQUEST_THRESHOLD = 50;
+	private const LOAD_PHP_PRESSURE_PEAK_10_THRESHOLD = 30;
+
 	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITH_PRESSURE = 5;
 	private const SECURITY_SCAN_IP_REQUEST_THRESHOLD_WITHOUT_PRESSURE = 25;
 	private const BOT_IDENTITY_ROTATION_TOTAL_REQUEST_THRESHOLD_WITH_PRESSURE = 50;
@@ -991,6 +994,9 @@ class ServerHealthMail extends Maintenance {
 				'trafficBucketIps' => [],
 				'trafficBucketSecondCounts' => [],
 				'trafficBucketSecondIps' => [],
+				'loadPhpDebugRequests' => 0,
+				'loadPhpDebugIps' => [],
+				'loadPhpDebugValues' => [],
 				'statusSecondCounts' => [],
 				'statusSecondIps' => [],
 				'methods' => [],
@@ -1084,6 +1090,27 @@ class ServerHealthMail extends Maintenance {
 				$result[$wiki]['trafficBucketSecondCounts'][$trafficBucket][$second] =
 					( $result[$wiki]['trafficBucketSecondCounts'][$trafficBucket][$second] ?? 0 ) + 1;
 				$result[$wiki]['trafficBucketSecondIps'][$trafficBucket][$second][$parsed['ip']] = true;
+
+				if ( $trafficBucket === 'load' ) {
+					$loadUrlParts = parse_url( $parsed['url'] );
+					$loadArgs = [];
+
+					if ( is_array( $loadUrlParts ) && isset( $loadUrlParts['query'] ) ) {
+						parse_str( (string)$loadUrlParts['query'], $loadArgs );
+					}
+
+					if ( array_key_exists( 'debug', $loadArgs ) ) {
+						$debugValue = $loadArgs['debug'];
+						$debugValue = is_array( $debugValue ) ? (string)reset( $debugValue ) : (string)$debugValue;
+						$debugValue = trim( $debugValue );
+						$debugValue = $debugValue !== '' ? $debugValue : '(vide)';
+						$result[$wiki]['loadPhpDebugRequests']++;
+						$result[$wiki]['loadPhpDebugIps'][$parsed['ip']] = true;
+						$result[$wiki]['loadPhpDebugValues'][$debugValue] =
+							( $result[$wiki]['loadPhpDebugValues'][$debugValue] ?? 0 ) + 1;
+					}
+				}
+
 				$result[$wiki]['statusSecondCounts'][$status][$second] =
 					( $result[$wiki]['statusSecondCounts'][$status][$second] ?? 0 ) + 1;
 				$result[$wiki]['statusSecondIps'][$status][$second][$parsed['ip']] = true;
@@ -3166,26 +3193,65 @@ class ServerHealthMail extends Maintenance {
 				$issues,
 				static fn ( array $issue ): bool => ( $issue['type'] ?? '' ) === 'crawler-wiki-ordinary-short-burst'
 			) );
+			$loadPhpCorrelations = $this->getLoadPhpPressureCorrelations( $logs );
 
-			if ( $shortBurstIssues ) {
+			if ( $shortBurstIssues || $loadPhpCorrelations ) {
 				$body .= "Corrélation trafic / pression serveur\n";
 				$body .= "-------------------------------------\n\n";
-				$body .= "Au moins un burst très rapide de pages ordinaires est observé dans la même fenêtre ";
-				$body .= "qu’une pression serveur. Cette coïncidence temporelle ne démontre pas à elle seule un lien causal.\n";
 
-				foreach ( $shortBurstIssues as $shortBurstIssue ) {
-					$details = $shortBurstIssue['shortBurstIpTemporalDetails'] ?? [];
-					$topDetail = $details[0] ?? null;
+				if ( $shortBurstIssues ) {
+					$body .= "Au moins un burst très rapide de pages ordinaires est observé dans la même fenêtre ";
+					$body .= "qu’une pression serveur. Cette coïncidence temporelle ne démontre pas à elle seule un lien causal.\n";
 
-					if ( !$topDetail ) {
-						continue;
+					foreach ( $shortBurstIssues as $shortBurstIssue ) {
+						$details = $shortBurstIssue['shortBurstIpTemporalDetails'] ?? [];
+						$topDetail = $details[0] ?? null;
+
+						if ( !$topDetail ) {
+							continue;
+						}
+
+						$body .= "\t{$shortBurstIssue['wiki']} : {$topDetail['ip']} | pic 10 s = ";
+						$body .= (int)( $topDetail['peak10']['requests'] ?? 0 ) . " page(s) ordinaire(s)\n";
 					}
 
-					$body .= "\t{$shortBurstIssue['wiki']} : {$topDetail['ip']} | pic 10 s = ";
-					$body .= (int)( $topDetail['peak10']['requests'] ?? 0 ) . " page(s) ordinaire(s)\n";
+					$body .= "\n";
 				}
 
-				$body .= "\n";
+				if ( $loadPhpCorrelations ) {
+					$body .= "Un burst ResourceLoader /w/load.php est observé dans la même fenêtre qu’une pression serveur. ";
+					$body .= "Ce trafic peut être produit par un navigateur légitime, notamment en mode debug ResourceLoader. ";
+					$body .= "La concomitance avec la pression PHP-FPM en fait un candidat plausible, ";
+					$body .= "sans indiquer à elle seule un trafic malveillant ni démontrer un lien causal.\n";
+
+					foreach ( $loadPhpCorrelations as $correlation ) {
+						$body .= "\t{$correlation['wiki']} : {$correlation['requests']} requête(s) /w/load.php";
+						$body .= " | {$correlation['ips']} IP";
+
+						if ( $correlation['singleIp'] !== null ) {
+							$body .= " | IP={$correlation['singleIp']}";
+						}
+
+						$body .= " | pics 1s={$correlation['peak1']['requests']}";
+						$body .= ", 5s={$correlation['peak5']['requests']}";
+						$body .= ", 10s={$correlation['peak10']['requests']}";
+
+						if ( $correlation['debugRequests'] > 0 ) {
+							$body .= " | debug={$correlation['debugRequests']}";
+							if ( $correlation['debugValues'] ) {
+								$debugParts = [];
+								foreach ( $correlation['debugValues'] as $value => $count ) {
+									$debugParts[] = "$value:$count";
+								}
+								$body .= ' (' . implode( ', ', $debugParts ) . ')';
+							}
+						}
+
+						$body .= "\n";
+					}
+
+					$body .= "\n";
+				}
 			}
 		}
 
@@ -3199,6 +3265,50 @@ class ServerHealthMail extends Maintenance {
 		$body .= "sans devoir se reconnecter au serveur.\n";
 
 		return $body;
+	}
+
+	private function getLoadPhpPressureCorrelations( array $logs ): array {
+		$correlations = [];
+
+		foreach ( $logs as $wiki => $data ) {
+			$requests = (int)( $data['trafficBucketCounts']['load'] ?? 0 );
+			$ips = $data['trafficBucketIps']['load'] ?? [];
+			$secondCounts = $data['trafficBucketSecondCounts']['load'] ?? [];
+			$secondIps = $data['trafficBucketSecondIps']['load'] ?? [];
+			$peak1 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 1 );
+			$peak5 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 5 );
+			$peak10 = $this->getOrdinaryPageWindowPeak( $secondCounts, $secondIps, 10 );
+
+			if (
+				$requests < self::LOAD_PHP_PRESSURE_REQUEST_THRESHOLD
+				|| (int)( $peak10['requests'] ?? 0 ) < self::LOAD_PHP_PRESSURE_PEAK_10_THRESHOLD
+			) {
+				continue;
+			}
+
+			$debugValues = $data['loadPhpDebugValues'] ?? [];
+			arsort( $debugValues, SORT_NUMERIC );
+			$singleIp = count( $ips ) === 1 ? (string)array_key_first( $ips ) : null;
+			$correlations[] = [
+				'wiki' => $wiki,
+				'requests' => $requests,
+				'ips' => count( $ips ),
+				'singleIp' => $singleIp,
+				'peak1' => $peak1,
+				'peak5' => $peak5,
+				'peak10' => $peak10,
+				'debugRequests' => (int)( $data['loadPhpDebugRequests'] ?? 0 ),
+				'debugIps' => count( $data['loadPhpDebugIps'] ?? [] ),
+				'debugValues' => $debugValues,
+			];
+		}
+
+		usort(
+			$correlations,
+			static fn ( array $a, array $b ): int => $b['peak10']['requests'] <=> $a['peak10']['requests']
+		);
+
+		return $correlations;
 	}
 
 	private function buildServerSnapshotDiagnostics( array $snapshot ): string {
@@ -3386,6 +3496,14 @@ class ServerHealthMail extends Maintenance {
 			$body .= " | bots déclarés={$data['ordinaryPageDeclaredBotRequests']}";
 			$body .= " | autres UA={$data['ordinaryPageNonDeclaredBotRequests']}";
 			$body .= " | dynamiques={$data['dynamicRequests']}";
+			$loadPhpRequests = (int)( $data['trafficBucketCounts']['load'] ?? 0 );
+			$loadPhpDebugRequests = (int)( $data['loadPhpDebugRequests'] ?? 0 );
+			$body .= ' | load.php=' . $loadPhpRequests;
+
+			if ( $loadPhpDebugRequests > 0 ) {
+				$body .= " (debug=$loadPhpDebugRequests)";
+			}
+
 			$body .= " | rejets 418={$data['fastRejectedRequests']}";
 			$body .= " | HTTP 429={$data['http429Requests']}";
 			$body .= ' | IP dynamiques=' . count( $data['dynamicIps'] );
