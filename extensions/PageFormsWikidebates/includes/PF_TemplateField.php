@@ -167,7 +167,7 @@ class PFTemplateField {
 		}
 		$label_formats = PFValuesUtils::getSMWPropertyValues( $store, $proptitle, "Has field label format" );
 		$propValue = \SMW\DIProperty::newFromUserLabel( $this->mSemanticProperty );
-		$this->mPropertyType = $propValue->findPropertyTypeID();
+		$this->mPropertyType = $propValue->findPropertyValueType();
 
 		foreach ( $allowed_values as $allowed_value ) {
 			// HTML-unencode each value
@@ -175,8 +175,7 @@ class PFTemplateField {
 			$this->mPossibleValues[] = $wiki_value;
 			if ( count( $label_formats ) > 0 ) {
 				$label_format = $label_formats[0];
-				$prop_instance = \SMW\DataValueFactory::findTypeID( $this->mPropertyType );
-				$label_value = \SMW\DataValueFactory::newTypeIDValue( $prop_instance, $wiki_value );
+				$label_value = \SMW\DataValueFactory::getInstance()->newDataValueByType( $this->mPropertyType, $wiki_value );
 				$label_value->setOutputFormat( $label_format );
 				$this->mValueLabels[$wiki_value] = html_entity_decode( $label_value->getWikiValue() );
 			}

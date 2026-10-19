@@ -294,7 +294,7 @@ class PFAutocompleteAPI extends ApiBase {
 
 		$property = SMW\DataValueFactory::getInstance()->newPropertyValueByLabel( $property_name );
 		$propertyHasTypePage = ( $property->getPropertyTypeID() == '_wpg' );
-		$store = smwfGetStore();
+		$store = PFUtils::getSMWStore();
 		if ( $store instanceof SMW\SQLStore\SQLStore ) {
 			$inceptiveProperty = $property->getInceptiveProperty();
 			$propertyTableId = $store->findPropertyTableID( $inceptiveProperty );
