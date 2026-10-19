@@ -108,7 +108,8 @@
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/InterwikiExtracts
 [submodule "extensions/VEForAll"]
 	path = extensions/VEForAll
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/VEForAll
+	url = git@github.com:wikidebates/wikidebates-veforall.git
+	branch = wikidebates-REL1_44
 [submodule "extensions/Wikidebates"]
 	path = extensions/Wikidebates
 	url = git@github.com:wikidebates/wikidebates-extension.git
