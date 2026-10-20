@@ -1737,14 +1737,14 @@ $.fn.setDependentAutocompletion = function( dependentField, baseField, baseValue
 	const request = $.ajax( {
 		url: myServer,
 		dataType: 'json'
-	} ).done( function( data ) {
+	} ).done( ( data ) => {
 		const dependentValues = [];
 		const realData = data.pfautocomplete || [];
 		$.each( realData, ( key, val ) => {
 			dependentValues.push( val.title );
 		} );
 		$thisInput.data( 'autocompletevalues', dependentValues );
-	} ).always( function() {
+	} ).always( () => {
 		$thisInput.removeData( 'pfDependentAutocompleteRequest' );
 	} );
 
@@ -1794,12 +1794,12 @@ $.fn.setAutocompleteForDependentField = function( partOfMultiple ) {
 
 		if ( $element.hasClass( 'pfTokens' ) ) {
 			tokens = new pf.select2.tokens();
-			$element.setDependentAutocompletion( dependentField, name, curValue ).done( function() {
+			$element.setDependentAutocompletion( dependentField, name, curValue ).done( () => {
 				tokens.refresh( $element );
 			} );
 		} else if ( $element.hasClass( 'pfComboBox' ) ) {
 			combobox = new pf.ComboBoxInput( {} );
-			$element.setDependentAutocompletion( dependentField, name, curValue ).done( function() {
+			$element.setDependentAutocompletion( dependentField, name, curValue ).done( () => {
 				combobox.refresh( $element );
 			} );
 		} else {
@@ -1878,7 +1878,7 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 
 			$instance.addClass( 'pf-removing-instance' );
 
-			window.setTimeout( function() {
+			window.setTimeout( () => {
 				$instance.find( 'input, select, textarea' ).each( function() {
 					$( this ).PageForms_unregisterInputInit();
 					$( this ).PageForms_unregisterInputValidation();
