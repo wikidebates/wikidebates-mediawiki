@@ -166,6 +166,12 @@
 	function handleSaveAndContinue( event ) {
 
 		event.stopImmediatePropagation();
+		event.preventDefault();
+		if ( $form.data( 'pfSavePending' ) ) {
+			return false;
+		}
+		$form.data( 'pfSavePending', true );
+		const buttonValue = $( event.currentTarget ).attr( 'value' );
 
 		// remove old error messages
 		const el = document.getElementById( 'form_error_header' );
@@ -174,7 +180,11 @@
 			el.parentNode.removeChild( el );
 		}
 
-		if ( validateAll() ) {
+		window.validateAllAsync().then( ( valid ) => {
+			if ( !valid ) {
+				$form.removeData( 'pfSavePending' );
+				return;
+			}
 			// disable save and continue button
 			$sacButtons
 			.attr( 'disabled', 'disabled' )
@@ -189,7 +199,7 @@
 				query: collectData() // add form values to the data
 			};
 
-			data.query += '&wpSave=' + encodeURIComponent( $( event.currentTarget ).attr( 'value' ) );
+			data.query += '&wpSave=' + encodeURIComponent( buttonValue );
 
 			$.ajax( {
 				type: 'POST', // request type ( GET or POST )
@@ -198,9 +208,11 @@
 				dataType: 'json', // type of data expected back from the server
 				success: resultReceivedHandler, // function to be called if the request succeeds
 				error: resultReceivedErrorHandler // function to be called on error
+			} ).always( () => {
+				$form.removeData( 'pfSavePending' );
 			} );
 
-		}
+		} );
 
 		return false;
 	}

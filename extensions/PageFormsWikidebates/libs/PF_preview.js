@@ -118,61 +118,64 @@
 	/**
 	 * Called when the preview button was clicked
 	 */
-	const previewButtonClickedHandler = function handlePreviewButtonClicked() {
+	const previewButtonClickedHandler = function handlePreviewButtonClicked( event ) {
+		event.preventDefault();
 
-		if ( !validateAll() ) {
-			return;
-		}
-
-		// data array to be sent to the server
-		const data = {
-			action: 'pfautoedit',
-			format: 'json'
-		};
-
-		// do we have a URL like .../index.php?title=pagename&action=formedit ?
-		if ( mw.config.get( 'wgAction' ) === 'formedit' ) {
-
-			// set the title, server has to find a suitable form
-			data.target = mw.config.get( 'wgPageName' );
-
-			// do we have a URL like .../Special:FormEdit/formname/pagename ?
-		} else if ( mw.config.get( 'wgCanonicalNamespace' ) === 'Special' && mw.config.get( 'wgCanonicalSpecialPageName' ) === 'FormEdit' ) {
-
-			// get the pagename and split it into parts
-			const pageName = mw.config.get( 'wgPageName' );
-			const parts = pageName.split( '/' );
-
-			if ( mw.util.getParamValue( 'form' ) ) {
-				data.form = mw.util.getParamValue( 'form' );
-			} else if ( parts.length > 1 ) { // found a formname
-				data.form = parts[1];
+		window.validateAllAsync().then( ( valid ) => {
+			if ( !valid ) {
+				return;
 			}
 
-			if ( mw.util.getParamValue( 'target' ) ) {
-				data.target = mw.util.getParamValue( 'target' );
-			} else if ( parts.length > 2 ) { // found a pagename
-				// Put the name back together, if it contains slashes.
-				data.target = parts.slice(2).join( '/' );
+			// data array to be sent to the server
+			const data = {
+				action: 'pfautoedit',
+				format: 'json'
+			};
+
+			// do we have a URL like .../index.php?title=pagename&action=formedit ?
+			if ( mw.config.get( 'wgAction' ) === 'formedit' ) {
+
+				// set the title, server has to find a suitable form
+				data.target = mw.config.get( 'wgPageName' );
+
+				// do we have a URL like .../Special:FormEdit/formname/pagename ?
+			} else if ( mw.config.get( 'wgCanonicalNamespace' ) === 'Special' && mw.config.get( 'wgCanonicalSpecialPageName' ) === 'FormEdit' ) {
+
+				// get the pagename and split it into parts
+				const pageName = mw.config.get( 'wgPageName' );
+				const parts = pageName.split( '/' );
+
+				if ( mw.util.getParamValue( 'form' ) ) {
+					data.form = mw.util.getParamValue( 'form' );
+				} else if ( parts.length > 1 ) { // found a formname
+					data.form = parts[1];
+				}
+
+				if ( mw.util.getParamValue( 'target' ) ) {
+					data.target = mw.util.getParamValue( 'target' );
+				} else if ( parts.length > 2 ) { // found a pagename
+					// Put the name back together, if it contains slashes.
+					data.target = parts.slice(2).join( '/' );
+				}
 			}
-		}
 
-		// add form values to the data
-		data.query = $form.serialize();
+			// add form values to the data
+			data.query = $form.serialize();
 
-		if ( data.query.length > 0 ) {
-			data.query += '&';
-		}
+			if ( data.query.length > 0 ) {
+				data.query += '&';
+			}
 
-		data.query += 'wpPreview=' + encodeURIComponent( $( this ).attr( 'value' ) );
+			data.query += 'wpPreview=' + encodeURIComponent( $( this ).attr( 'value' ) );
 
-		$.ajax( {
+			$.ajax( {
 
-			type: 'POST', // request type ( GET or POST )
-			url: mw.util.wikiScript( 'api' ), // URL to which the request is sent
-			data: data, // data to be sent to the server
-			dataType: 'json', // type of data expected back from the server
-			success: resultReceivedHandler // function to be called if the request succeeds
+				type: 'POST', // request type ( GET or POST )
+				url: mw.util.wikiScript( 'api' ), // URL to which the request is sent
+				data: data, // data to be sent to the server
+				dataType: 'json', // type of data expected back from the server
+				success: resultReceivedHandler // function to be called if the request succeeds
+			} );
 		} );
 	};
 

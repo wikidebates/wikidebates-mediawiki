@@ -480,31 +480,28 @@ const Sortable = require( 'ext.pageforms.sortable' );
 					}
 				}
 			}
-		} else { // Dependent field autocompletion
-			const dep_field_opts = this.getDependentFieldOpts( dep_on );
-			let my_server = mw.config.get( 'wgScriptPath' ) + "/api.php";
-			my_server += "?action=pfautocomplete&format=json&property=" + dep_field_opts.prop +
-				"&baseprop=" + dep_field_opts.base_prop + "&basevalue=" + dep_field_opts.base_value;
-			$.ajax({
-				url: my_server,
-				dataType: 'json',
-				async: false,
-				success: function(value) {
-					// Convert data into the format accepted by Select2.
-					value.pfautocomplete.forEach( (item) => {
-						if (item.displaytitle !== undefined) {
-							values.push({
-								id: item.displaytitle, text: item.displaytitle
-							});
-						} else {
-							values.push({
-								id: item.title, text: item.title
-							});
-						}
-					});
-					return values;
-				}
-			});
+		} else {
+			const $element = this.getCurrentElement();
+			// The main form prefetches these values. Calendar popups can
+			// initialize tokens directly, so load missing values asynchronously.
+			if ( $element.data( 'autocompletevalues' ) === undefined ) {
+				const options = this.getDependentFieldOpts( dep_on );
+				const request = $element.loadDependentAutocompleteValues( {
+					action: 'pfautocomplete', format: 'json', property: options.prop,
+					baseprop: options.base_prop, basevalue: options.base_value
+				} );
+				const requestKey = $element.data( 'pfDependentAutocompleteKey' );
+				request.done( () => {
+					if ( $element.data( 'pfDependentAutocompleteKey' ) === requestKey &&
+						!$element.data( 'pfDependentAutocompleteError' ) && $element.data( 'select2' ) ) {
+						this.refresh( $element );
+					}
+				} );
+			}
+			data = $element.data( 'autocompletevalues' ) || [];
+			data.forEach( ( value ) => {
+				values.push( { id: value, text: value } );
+			} );
 		}
 
 		return values;

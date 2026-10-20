@@ -592,37 +592,18 @@ window.ext.popupform = ( function() {
 
 		// if we have a form and it is not a RunQuery form
 		if ($form.length > 0 && ( typeof $form[0].wpRunQuery === 'undefined') ) {
-			let submitok = false;
-			let innersubmitprocessed = false;
-
-			// catch form submit event
-			$form
-			.bind( "submit", ( event ) => {
-				var interval = setInterval(() => {
-					if ( innersubmitprocessed ) {
-						clearInterval( interval );
-						innersubmitprocessed = false;
-						if ( submitok ) {
-							handleSubmitData( event );
-						}
-					}
-
-				}, 10);
-				event.stopPropagation();
-				return false;
-			});
-
-			// catch inner form submit event
 			if ( innerJ ) {
-				innerwdw.jQuery($form[0])
-				.bind( "submit", ( event ) => {
-						submitok = ( event.result === undefined ) ? true : event.result;
-						innersubmitprocessed = true;
-						return false;
-				});
+				const $innerForm = innerJ( $form[ 0 ] );
+				// Delegate the POST after validation without depending on which
+				// frame's submit handlers were registered first at DOM ready.
+				$innerForm.data( 'pfPopupSubmit', ( event ) => {
+					handleSubmitData( event );
+				} );
 			} else {
-				submitok = true;
-				innersubmitprocessed = true;
+				$form.bind( 'submit', ( event ) => {
+					event.preventDefault();
+					return handleSubmitData( event );
+				} );
 			}
 		}
 

@@ -2,7 +2,8 @@
 	"name": "PageForms",
 	"private": true,
 	"scripts": {
-		"test": "grunt test"
+		"test": "grunt test && npm run test:node",
+		"test:node": "node --test --test-isolation=none tests/node/*.test.cjs"
 	},
 	"devDependencies": {
 		"eslint-config-wikimedia": "0.32.3",

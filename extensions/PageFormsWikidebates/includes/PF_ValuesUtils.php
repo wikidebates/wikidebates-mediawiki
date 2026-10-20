@@ -284,30 +284,56 @@ SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode
 
 		$db = PFUtils::getReadDB();
 		$top_category = str_replace( ' ', '_', $top_category );
-		$categories = [ $top_category ];
 		$checkcategories = [ $top_category ];
 		$seenCategories = [ $top_category => true ];
 		$pages = [];
 		$sortkeys = [];
 		$maxResults = self::getMaxValuesToRetrieve( $substring );
+		// The schema is constant for this call; do not inspect it per category.
+		$hasClTo = $db->fieldExists( 'categorylinks', 'cl_to' );
+		$categoryColumn = $hasClTo ? 'cl_to' : 'lt_title';
 
 		for ( $level = $num_levels; $level > 0; $level-- ) {
 			$newcategories = [];
-			$newCategoryMap = [];
+			// Discover subcategories separately. A LIMIT on matching pages must
+			// never prevent traversal, and these queries need no page_props joins.
+			if ( $level > 1 ) {
+				foreach ( array_chunk( $checkcategories, 50 ) as $categoryBatch ) {
+					$tables = [ 'categorylinks', 'page' ];
+					$conditions = [ $categoryColumn => $categoryBatch, 'cl_type' => 'subcat',
+						'page_namespace' => NS_CATEGORY ];
+					$join = [ 'categorylinks' => [ 'JOIN', 'cl_from = page_id' ] ];
+					if ( !$hasClTo ) {
+						$tables[] = 'linktarget';
+						$join['linktarget'] = [ 'JOIN', 'cl_target_id = lt_id' ];
+						$conditions['lt_namespace'] = NS_CATEGORY;
+					}
+					$res = $db->select( $tables, [ 'page_title' ], $conditions, __METHOD__,
+						[ 'ORDER BY' => 'page_title' ], $join );
+					foreach ( $res as $row ) {
+						if ( !isset( $seenCategories[$row->page_title] ) ) {
+							$newcategories[] = $row->page_title;
+							$seenCategories[$row->page_title] = true;
+						}
+					}
+					$res->free();
+				}
+			}
 
 			foreach ( $checkcategories as $category ) {
 				$tables = [ 'categorylinks', 'page' ];
 				$columns = [ 'page_title', 'page_namespace' ];
-				$conditions = [];
+				$conditions = [ 'page_namespace != ' . NS_CATEGORY ];
 				$join = [ 'categorylinks' => [ 'JOIN', 'cl_from = page_id' ] ];
 
-				if ( $db->fieldExists( 'categorylinks', 'cl_to' ) ) {
+				if ( $hasClTo ) {
 					$conditions['cl_to'] = $category;
 				} else {
 					// MW 1.45+
 					$tables[] = 'linktarget';
 					$join['linktarget'] = [ 'JOIN', 'cl_target_id = lt_id' ];
 					$conditions['lt_title'] = $category;
+					$conditions['lt_namespace'] = NS_CATEGORY;
 				}
 
 				if ( $wgPageFormsUseDisplayTitle ) {
@@ -334,11 +360,9 @@ SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode
 						$conditions[] = '((pp_displaytitle.pp_value IS NULL OR pp_displaytitle.pp_value = \'\') AND (' .
 							self::getSQLConditionForAutocompleteAtStartOfColumn( 'page_title', $substring ) .
 							')) OR ' .
-							self::getSQLConditionForAutocompleteAtStartOfColumn( 'pp_displaytitle.pp_value', $substring, false ) .
-							' OR page_namespace = ' . NS_CATEGORY;
+							self::getSQLConditionForAutocompleteAtStartOfColumn( 'pp_displaytitle.pp_value', $substring, false );
 					} else {
-						$conditions[] = self::getSQLConditionForAutocompleteAtStartOfColumn( 'page_title', $substring ) .
-							' OR page_namespace = ' . NS_CATEGORY;
+						$conditions[] = self::getSQLConditionForAutocompleteAtStartOfColumn( 'page_title', $substring );
 					}
 				}
 
@@ -365,14 +389,6 @@ SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode
 
 					$page_namespace = $row['page_namespace'];
 					$page_name = $row['page_title'];
-
-					if ( $page_namespace == NS_CATEGORY ) {
-						if ( !isset( $seenCategories[$page_name] ) && !isset( $newCategoryMap[$page_name] ) ) {
-							$newcategories[] = $page_name;
-							$newCategoryMap[$page_name] = true;
-						}
-						continue;
-					}
 
 					$cur_title = Title::makeTitleSafe( $page_namespace, $page_name );
 					if ( $cur_title === null ) {
@@ -405,10 +421,6 @@ SERVICE wikibase:label { bd:serviceParam wikibase:language \"" . $wgLanguageCode
 				return self::fixedMultiSort( $sortkeys, $pages );
 			}
 
-			$categories = array_merge( $categories, $newcategories );
-			foreach ( $newcategories as $newcategory ) {
-				$seenCategories[$newcategory] = true;
-			}
 			$checkcategories = $newcategories;
 		}
 

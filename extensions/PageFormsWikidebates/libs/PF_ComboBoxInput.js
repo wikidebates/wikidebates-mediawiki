@@ -272,8 +272,8 @@
 			}
 			values.push( {
 				id: value,
-				text: optionText,
-				title: value || optionText
+				text: text,
+				title: value || text
 			} );
 		} );
 		return values;
@@ -422,10 +422,7 @@
 				if ( result.loading || term === '' ) {
 					return text;
 				}
-				return self.escapeMarkupAndAddHTML( self.textHighlight( text, term ) );
-			},
-			escapeMarkup: function ( markup ) {
-				return markup;
+				return $( '<span>' ).html( self.escapeMarkupAndAddHTML( self.textHighlight( text, term ) ) );
 			},
 			language: {
 				inputTooShort: function () {

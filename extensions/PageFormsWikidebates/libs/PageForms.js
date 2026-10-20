@@ -149,15 +149,16 @@ function registerLazyWidget( $elements, initializer ) {
 
 	$elements.each( function() {
 		const $element = $( this );
-		if ( $element.data( 'pfLazyRegistered' ) ) {
+		if ( $element.data( 'pfLazyRegistered' ) || $element.closest( '.multipleTemplateStarter' ).length ) {
 			return;
 		}
 
 		$element.data( 'pfLazyRegistered', true );
-		$element.data( 'pfLazyInit', initializer );
+		const initialize = () => initializer( $element );
+		$element.data( 'pfLazyInit', initialize );
 
 		if ( shouldLazyLoadImmediately( this ) || observer === null ) {
-			initializer();
+			initialize();
 			return;
 		}
 
@@ -278,22 +279,27 @@ function initCalendarsIn( $root ) {
 	loadPFModule( 'ext.pageforms.fullcalendar' );
 }
 
+function initComboBoxesIn( $root ) {
+	const $elements = $root.find( '.pfComboBox' ).addBack( '.pfComboBox' )
+		.not( '.multipleTemplateStarter .pfComboBox, .pf-combobox-initialized' );
+	if ( $elements.length === 0 ) {
+		return;
+	}
+
+	loadPFModule( 'ext.pageforms.ooui.combobox' ).then( () => {
+		$elements.each( function() {
+			new pf.ComboBoxInput( {} ).apply( $( this ) );
+		} );
+	} );
+}
+
 function initVisibleWidgetsIn( $root ) {
-	registerLazyWidget( $root.find( '.pfTokens' ).addBack( '.pfTokens' ), () => {
-		initTokensIn( $root );
-	} );
-	registerLazyWidget( $root.find( '.autoGrow' ).addBack( '.autoGrow' ), () => {
-		initAutoGrowIn( $root );
-	} );
-	registerLazyWidget( $root.find( '.pfRating' ).addBack( '.pfRating' ), () => {
-		initRatingsIn( $root );
-	} );
-	registerLazyWidget( $root.find( '.pfTreeInput' ).addBack( '.pfTreeInput' ), () => {
-		initTreesIn( $root );
-	} );
-	registerLazyWidget( $root.find( '.pfFullCalendarJS' ).addBack( '.pfFullCalendarJS' ), () => {
-		initCalendarsIn( $root );
-	} );
+	registerLazyWidget( $root.find( '.pfTokens' ).addBack( '.pfTokens' ), initTokensIn );
+	registerLazyWidget( $root.find( '.pfComboBox' ).addBack( '.pfComboBox' ), initComboBoxesIn );
+	registerLazyWidget( $root.find( '.autoGrow' ).addBack( '.autoGrow' ), initAutoGrowIn );
+	registerLazyWidget( $root.find( '.pfRating' ).addBack( '.pfRating' ), initRatingsIn );
+	registerLazyWidget( $root.find( '.pfTreeInput' ).addBack( '.pfTreeInput' ), initTreesIn );
+	registerLazyWidget( $root.find( '.pfFullCalendarJS' ).addBack( '.pfFullCalendarJS' ), initCalendarsIn );
 	initImagePreviewIn( $root );
 }
 
@@ -756,143 +762,100 @@ $.fn.validateMandatoryField = function() {
 	}
 };
 
+// Build a request separately so synchronous validators can recognize a result
+// for the exact current value and constraints without blocking the browser.
+function getUniqueFieldCheck( $wrapper ) {
+	const $field = $wrapper.find( '.uniqueField' );
+	const value = $field.val();
+	if ( value === undefined || String( value ).trim() === '' || value === $field.prop( 'defaultValue' ) ) {
+		return null;
+	}
+
+	const id = $field.prop( 'id' );
+	const getConstraint = ( suffix ) => $( document.getElementsByName( id + suffix ) ).val();
+	const category = getConstraint( '_unique_for_category' );
+	const namespace = getConstraint( '_unique_for_namespace' );
+	const property = getConstraint( '_unique_property' );
+	let data;
+
+	if ( property !== undefined && property.trim() !== '' ) {
+		let query = '[[' + property + '::' + value + ']]';
+		if ( category !== undefined && category.trim() !== '' ) {
+			query += '[[Category:' + category + ']]';
+		}
+		if ( namespace !== undefined ) {
+			query += namespace.trim() !== '' ? '[[:' + namespace + ':+]]' : '[[:+]]';
+		}
+		const concept = getConstraint( '_unique_for_concept' );
+		if ( concept !== undefined && concept.trim() !== '' ) {
+			query += '[[Concept:' + concept + ']]';
+		}
+		data = { action: 'ask', query: query + '|limit=1', format: 'json' };
+	} else {
+		let table = getConstraint( '_unique_cargo_table' );
+		const field = getConstraint( '_unique_cargo_field' );
+		if ( !table || !table.trim() || !field || !field.trim() ) {
+			return null;
+		}
+		const quote = ( text ) => "'" + String( text ).replace( /'/g, "''" ) + "'";
+		let where = field + ' = ' + quote( value );
+		if ( category !== undefined && category.trim() !== '' ) {
+			where += ' AND cl_to = ' + quote( category.replace( / /g, '_' ) ) + ' AND cl_from = _pageID';
+			table += ',categorylinks';
+		}
+		if ( namespace !== undefined ) {
+			const namespaceId = namespace.trim() === '' ? 0 : ( mw.config.get( 'wgNamespaceIds' ) || {} )[ namespace.toLowerCase() ];
+			if ( namespaceId !== undefined ) {
+				where += ' AND _pageNamespace = ' + namespaceId;
+			}
+		}
+		data = { action: 'cargoquery', tables: table, fields: field, where: where, limit: 1, format: 'json' };
+	}
+	return { data: data, key: JSON.stringify( data ) };
+}
+
+$.fn.validateUniqueFieldAsync = function() {
+	const check = getUniqueFieldCheck( this );
+	if ( check === null ) {
+		return $.when( true );
+	}
+	const $wrapper = this;
+	const recordResult = ( valid, message ) => {
+		$wrapper.data( 'pfUniqueValidation', { key: check.key, valid: valid, message: message } );
+		return valid;
+	};
+
+	return new mw.Api( { ajax: { timeout: 15000 } } ).get( check.data ).then( ( data ) => {
+		let count;
+		if ( check.data.action === 'ask' && data.query && data.query.meta ) {
+			count = data.query.meta.count;
+		} else if ( check.data.action === 'cargoquery' && Array.isArray( data.cargoquery ) ) {
+			count = data.cargoquery.length;
+		}
+		if ( typeof count !== 'number' ) {
+			return recordResult( false, 'pf_validation_error' );
+		}
+		return recordResult( count === 0, 'pf_not_unique_error' );
+	}, () => recordResult( false, 'pf_validation_error' ) );
+};
+
+// Keep the boolean contract for callers of validateAll(). Network checks must
+// be prepared with validateAllAsync(); missing or stale results fail closed.
 $.fn.validateUniqueField = function() {
-
-	const UNDEFINED = "undefined";
-	const field = this.find(".uniqueField");
-	const fieldVal = field.val();
-
-	if (typeof fieldVal === UNDEFINED || fieldVal.replace(/\s+/, '') === '') {
+	const check = getUniqueFieldCheck( this );
+	if ( check === null ) {
 		return true;
 	}
-
-	const fieldOrigVal = field.prop("defaultValue");
-	if (fieldVal === fieldOrigVal) {
-		return true;
+	const result = this.data( 'pfUniqueValidation' );
+	this.removeData( 'pfUniqueValidation' );
+	if ( !result || result.key !== check.key ) {
+		this.addErrorMessage( 'pf_validation_error' );
+		return false;
 	}
-
-	const categoryFieldName = field.prop("id") + "_unique_for_category";
-	const $categoryField = $("[name=" + categoryFieldName + "]");
-	let category = $categoryField.val();
-
-	const namespaceFieldName = field.prop("id") + "_unique_for_namespace";
-	const $namespaceField = $("[name=" + namespaceFieldName + "]");
-	const namespace = $namespaceField.val();
-
-	let url = mw.config.get( 'wgScriptPath' ) + "/api.php?format=json&action=";
-
-	let query,
-		isNotUnique;
-
-	// SMW
-	const propertyFieldName = field.prop("id") + "_unique_property",
-		$propertyField = $("[name=" + propertyFieldName + "]"),
-		property = $propertyField.val();
-	if (typeof property !== UNDEFINED && property.replace(/\s+/, '') !== '') {
-
-		query = "[[" + property + "::" + fieldVal + "]]";
-
-		if (typeof category !== UNDEFINED &&
-			category.replace(/\s+/, '') !== '') {
-			query += "[[Category:" + category + "]]";
-		}
-
-		if (typeof namespace !== UNDEFINED) {
-			if (namespace.replace(/\s+/, '') !== '') {
-				query += "[[:" + namespace + ":+]]";
-			} else {
-				query += "[[:+]]";
-			}
-		}
-
-		const conceptFieldName = field.prop("id") + "_unique_for_concept";
-		const $conceptField = $("[name=" + conceptFieldName + "]");
-		const concept = $conceptField.val();
-		if (typeof concept !== UNDEFINED &&
-			concept.replace(/\s+/, '') !== '') {
-			query += "[[Concept:" + concept + "]]";
-		}
-
-		query += "|limit=1";
-		query = encodeURIComponent(query);
-
-		url += "ask&query=" + query;
-		isNotUnique = true;
-		$.ajax({
-			url: url,
-			dataType: 'json',
-			async: false,
-			success: function(data) {
-				if (data.query.meta.count === 0) {
-					isNotUnique = false;
-				}
-			}
-		});
-		if (isNotUnique) {
-			this.addErrorMessage( 'pf_not_unique_error' );
-			return false;
-		} else {
-			return true;
-		}
+	if ( !result.valid ) {
+		this.addErrorMessage( result.message );
 	}
-
-	// Cargo
-	const cargoTableFieldName = field.prop("id") + "_unique_cargo_table";
-	const $cargoTableField = $("[name=" + cargoTableFieldName + "]");
-	let cargoTable = $cargoTableField.val();
-	const cargoFieldFieldName = field.prop("id") + "_unique_cargo_field";
-	const $cargoFieldField = $("[name=" + cargoFieldFieldName + "]");
-	const cargoField = $cargoFieldField.val();
-	if (typeof cargoTable !== UNDEFINED && cargoTable.replace(/\s+/, '') !== ''
-		&& typeof cargoField !== UNDEFINED
-		&& cargoField.replace(/\s+/, '') !== '') {
-
-		query = "&where=" + cargoField + "+=+'" + fieldVal + "'";
-
-		if (typeof category !== UNDEFINED &&
-			category.replace(/\s+/, '') !== '') {
-			category = category.replace(/\s/, '_');
-			query += "+AND+cl_to=" + category + "+AND+cl_from=_pageID";
-			cargoTable += ",categorylinks";
-		}
-
-		if (typeof namespace !== UNDEFINED) {
-			query += "+AND+_pageNamespace=";
-			if (namespace.replace(/\s+/, '') !== '') {
-				const ns = mw.config.get('wgNamespaceIds')[namespace.toLowerCase()];
-				if (typeof ns !== UNDEFINED) {
-					query += ns;
-				}
-			} else {
-				query += "0";
-			}
-		}
-
-		query += "&limit=1";
-
-		url += "cargoquery&tables=" + cargoTable + "&fields=" + cargoField +
-			query;
-		isNotUnique = true;
-		$.ajax({
-			url: url,
-			dataType: 'json',
-			async: false,
-			success: function(data) {
-				if (data.cargoquery.length === 0) {
-					isNotUnique = false;
-				}
-			}
-		});
-		if (isNotUnique) {
-			this.addErrorMessage( 'pf_not_unique_error' );
-			return false;
-		} else {
-			return true;
-		}
-	}
-
-	return true;
-
+	return result.valid;
 };
 
 $.fn.validateMandatoryComboBox = function() {
@@ -1358,6 +1321,15 @@ window.validateAll = function() {
 		}
 	}
 
+	$pfForm.find( '.pfTokens, .pfComboBox' ).each( function() {
+		const $input = $( this );
+		if ( $input.closest( '.hiddenByPF, .multipleTemplateStarter' ).length === 0 &&
+			( $input.data( 'pfDependentAutocompleteError' ) || $input.data( 'pfDependentAutocompleteRequest' ) ) ) {
+			$input.parent().addErrorMessage( 'pf_autocomplete_error' );
+			num_errors++;
+		}
+	} );
+
 	if (num_errors > 0) {
 		// add error header, if it's not there already
 		ensureFormErrorHeader( mw.message( 'pf_formerrors_header' ).escaped() );
@@ -1385,6 +1357,47 @@ window.validateAll = function() {
 	mw.hook('pf.formValidationAfter').fire();
 
 	return (num_errors === 0);
+};
+
+/**
+ * Wait for remote checks before running synchronous validation and its hooks.
+ * Duplicate clicks fail closed; a changed form must be submitted again so the
+ * submitted values always match the values that were checked.
+ *
+ * @return {jQuery.Promise<boolean>} Whether the form may be submitted
+ */
+window.validateAllAsync = function() {
+	const $form = getPFForm();
+	if ( $form.data( 'pfValidationPending' ) ) {
+		return $.when( false );
+	}
+	$form.data( 'pfValidationPending', true );
+	const snapshot = $form.serialize();
+	const checks = [];
+	$form.find( 'span.inputSpan.uniqueFieldSpan' ).each( function() {
+		const $wrapper = $( this );
+		if ( $wrapper.closest( '.hiddenByPF, .multipleTemplateStarter' ).length === 0 ) {
+			checks.push( $wrapper.validateUniqueFieldAsync() );
+		}
+	} );
+	$form.find( '.pfTokens, .pfComboBox' ).each( function() {
+		const $input = $( this );
+		const request = $input.data( 'pfDependentAutocompleteRequest' );
+		if ( request && $input.closest( '.hiddenByPF, .multipleTemplateStarter' ).length === 0 ) {
+			checks.push( request.then( () => true, () => false ) );
+		}
+	} );
+	return $.when.apply( $, checks ).then( () => {
+		if ( snapshot !== $form.serialize() ) {
+			ensureFormErrorHeader( mw.message( 'pf_validation_changed' ).escaped() );
+			return false;
+		}
+		return window.validateAll();
+	} ).always( () => {
+		$form.removeData( 'pfValidationPending' );
+		$form.data( 'submitted', false );
+		$( '.editButtons > .oo-ui-buttonElement' ).removeClass( 'oo-ui-widget-disabled' ).addClass( 'oo-ui-widget-enabled' );
+	} );
 };
 
 /**
@@ -1753,47 +1766,75 @@ $.fn.addInstance = function( addAboveCurInstance ) {
 // regular inputs, and the 'origName' attribute for inputs in multiple-instance
 // templates.
 $.fn.setDependentAutocompletion = function( dependentField, baseField, baseValue ) {
-	let myServer = mw.config.get( 'wgScriptPath' ) + "/api.php",
-		wgPageFormsCargoFields = mw.config.get( 'wgPageFormsCargoFields' ),
-		wgPageFormsFieldProperties = mw.config.get( 'wgPageFormsFieldProperties' );
-	myServer += "?action=pfautocomplete&format=json";
-	if ( wgPageFormsCargoFields.hasOwnProperty( dependentField ) ) {
-		const cargoTableAndFieldStr = wgPageFormsCargoFields[dependentField];
-		const cargoTableAndField = cargoTableAndFieldStr.split('|');
-		const cargoTable = cargoTableAndField[0];
-		const cargoField = cargoTableAndField[1];
-		const baseCargoTableAndFieldStr = wgPageFormsCargoFields[baseField];
-		const baseCargoTableAndField = baseCargoTableAndFieldStr.split('|');
-		const baseCargoTable = baseCargoTableAndField[0];
-		const baseCargoField = baseCargoTableAndField[1];
-		myServer += "&cargo_table=" + cargoTable + "&cargo_field=" + cargoField + "&is_array=true" + "&base_cargo_table=" + baseCargoTable + "&base_cargo_field=" + baseCargoField + "&basevalue=" + baseValue;
+	const cargoFields = mw.config.get( 'wgPageFormsCargoFields' ) || {};
+	const properties = mw.config.get( 'wgPageFormsFieldProperties' ) || {};
+	const data = { action: 'pfautocomplete', format: 'json', basevalue: baseValue };
+	if ( Object.prototype.hasOwnProperty.call( cargoFields, dependentField ) ) {
+		const target = cargoFields[ dependentField ].split( '|' );
+		const source = cargoFields[ baseField ].split( '|' );
+		data.cargo_table = target[ 0 ];
+		data.cargo_field = target[ 1 ];
+		data.base_cargo_table = source[ 0 ];
+		data.base_cargo_field = source[ 1 ];
 	} else {
-		const propName = wgPageFormsFieldProperties[dependentField];
-		const baseProp = wgPageFormsFieldProperties[baseField];
-		myServer += "&property=" + propName + "&baseprop=" + baseProp + "&basevalue=" + baseValue;
+		data.property = properties[ dependentField ];
+		data.baseprop = properties[ baseField ];
 	}
 
-	const $thisInput = $(this);
-	const previousRequest = $thisInput.data( 'pfDependentAutocompleteRequest' );
+	return this.loadDependentAutocompleteValues( data );
+};
+
+// Also used by token widgets initialized outside the main form (e.g. calendars).
+$.fn.loadDependentAutocompleteValues = function( data ) {
+	const $input = this;
+	const previousRequest = $input.data( 'pfDependentAutocompleteRequest' );
+	const requestKey = JSON.stringify( data );
+	if ( $input.data( 'pfDependentAutocompleteKey' ) === requestKey ) {
+		if ( previousRequest ) {
+			return previousRequest;
+		}
+		if ( $input.data( 'pfDependentAutocompleteLoaded' ) ) {
+			return $.when( { pfautocomplete: ( $input.data( 'autocompletevalues' ) || [] )
+				.map( ( title ) => ( { title: title } ) ) } );
+		}
+	}
 	if ( previousRequest && typeof previousRequest.abort === 'function' ) {
 		previousRequest.abort();
 	}
+	$input.data( 'pfDependentAutocompleteKey', requestKey );
+	$input.data( 'pfDependentAutocompleteLoaded', false );
+	$input.attr( 'aria-busy', 'true' );
+	$input.data( 'autocompletevalues', [] );
+	$input.data( 'pfDependentAutocompleteError', false );
+	$input.parent().find( '.pf-dependent-error' ).remove();
 
-	const request = $.ajax( {
-		url: myServer,
-		dataType: 'json'
-	} ).done( function( data ) {
-		const dependentValues = [];
-		const realData = data.pfautocomplete || [];
-		$.each( realData, ( key, val ) => {
-			dependentValues.push( val.title );
-		} );
-		$thisInput.data( 'autocompletevalues', dependentValues );
-	} ).always( function() {
-		$thisInput.removeData( 'pfDependentAutocompleteRequest' );
+	const request = new mw.Api( { ajax: { timeout: 15000 } } ).get( data );
+	$input.data( 'pfDependentAutocompleteRequest', request );
+	const showError = () => {
+		$input.data( 'pfDependentAutocompleteError', true );
+		$( '<span>' ).addClass( 'errorMessage pf-dependent-error' ).attr( 'role', 'alert' )
+			.text( mw.msg( 'pf_autocomplete_error' ) ).appendTo( $input.parent() );
+	};
+	request.done( ( response ) => {
+		if ( $input.data( 'pfDependentAutocompleteRequest' ) !== request ) {
+			return;
+		}
+		if ( !Array.isArray( response.pfautocomplete ) ) {
+			showError();
+			return;
+		}
+		$input.data( 'autocompletevalues', response.pfautocomplete.map( ( item ) => item.title ) );
+		$input.data( 'pfDependentAutocompleteLoaded', true );
+	} ).fail( ( code ) => {
+		if ( code !== 'abort' && $input.data( 'pfDependentAutocompleteRequest' ) === request ) {
+			showError();
+		}
+	} ).always( () => {
+		if ( $input.data( 'pfDependentAutocompleteRequest' ) === request ) {
+			$input.removeData( 'pfDependentAutocompleteRequest' );
+			$input.removeAttr( 'aria-busy' );
+		}
 	} );
-
-	$thisInput.data( 'pfDependentAutocompleteRequest', request );
 	return request;
 };
 
@@ -1823,8 +1864,8 @@ $.fn.setAutocompleteForDependentField = function( partOfMultiple ) {
 
 	const self = this;
 	$.each( dependent_on_me, function() {
-		let $element, combobox, tokens,
-			dependentField = this;
+		let $element;
+		const dependentField = this;
 
 		if ( partOfMultiple ) {
 			$element = $( self ).closest( '.multipleTemplateInstance' )
@@ -1837,19 +1878,21 @@ $.fn.setAutocompleteForDependentField = function( partOfMultiple ) {
 			return;
 		}
 
-		if ( $element.hasClass( 'pfTokens' ) ) {
-			tokens = new pf.select2.tokens();
-			$element.setDependentAutocompletion( dependentField, name, curValue ).done( function() {
-				tokens.refresh( $element );
-			} );
-		} else if ( $element.hasClass( 'pfComboBox' ) ) {
-			combobox = new pf.ComboBoxInput( {} );
-			$element.setDependentAutocompletion( dependentField, name, curValue ).done( function() {
-				combobox.refresh( $element );
-			} );
-		} else {
-			$element.setDependentAutocompletion( dependentField, name, curValue );
-		}
+		const request = $element.setDependentAutocompletion( dependentField, name, curValue );
+		const requestKey = $element.data( 'pfDependentAutocompleteKey' );
+		request.done( () => {
+			// Uninitialized widgets will use the new values when they become
+			// visible. Do not eagerly load every dependent widget here.
+			if ( $element.data( 'pfDependentAutocompleteKey' ) !== requestKey ||
+				$element.data( 'pfDependentAutocompleteError' ) || !$element.data( 'select2' ) ) {
+				return;
+			}
+			if ( $element.hasClass( 'pfTokens' ) ) {
+				new pf.select2.tokens().refresh( $element );
+			} else if ( $element.hasClass( 'pfComboBox' ) ) {
+				new pf.ComboBoxInput( {} ).refresh( $element );
+			}
+		} );
 	} );
 
 	return this;
@@ -1942,11 +1985,6 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 		});
 	}
 
-	$root.find('.pfComboBox').not('.multipleTemplateStarter .pfComboBox, .pf-combobox-initialized').each( function() {
-		const $source = $( this );
-		const inputType = new pf.ComboBoxInput( {} );
-		inputType.apply( $source );
-	});
 
 	// Set the end date input to the value selected in start date
 	$root.find("span.startDateInput").not(".hiddenByPF").find("input").last().off( 'blur.pfCopyStartDate' ).on( 'blur.pfCopyStartDate', function() {
@@ -2095,16 +2133,18 @@ $( () => {
 		return;
 	}
 
-	$pfForm.on( 'focusin', '.pfTokens, .autoGrow, .pfRating, .pfTreeInput', function() {
+	$pfForm.on( 'focusin', '.pfTokens, .pfComboBox, .autoGrow, .pfRating, .pfTreeInput', function() {
 		const $target = $( this );
 		if ( $target.hasClass( 'pfTokens' ) ) {
-			initTokensIn( $target.closest( '.multipleTemplateInstance, #pfForm' ) );
+			initTokensIn( $target );
+		} else if ( $target.hasClass( 'pfComboBox' ) ) {
+			initComboBoxesIn( $target );
 		} else if ( $target.hasClass( 'autoGrow' ) ) {
-			initAutoGrowIn( $target.closest( '.multipleTemplateInstance, #pfForm' ) );
+			initAutoGrowIn( $target );
 		} else if ( $target.hasClass( 'pfRating' ) ) {
-			initRatingsIn( $target.closest( '.multipleTemplateInstance, #pfForm' ) );
+			initRatingsIn( $target );
 		} else if ( $target.hasClass( 'pfTreeInput' ) ) {
-			initTreesIn( $target.closest( '.multipleTemplateInstance, #pfForm' ) );
+			initTreesIn( $target );
 		}
 	} );
 
@@ -2214,7 +2254,32 @@ $( () => {
 			}
 
 			// If the form is submitted, validate everything!
-			$pfForm.off( 'submit.pfValidate' ).on( 'submit.pfValidate', () => validateAll() );
+			$pfForm.off( 'submit.pfValidate' ).on( 'submit.pfValidate', function( event ) {
+				if ( event.isDefaultPrevented() ) {
+					return;
+				}
+				event.preventDefault();
+				const form = this;
+				const submitter = event.originalEvent && event.originalEvent.submitter;
+				return window.validateAllAsync().then( ( valid ) => {
+					if ( !valid ) {
+						return false;
+					}
+					const popupSubmit = $pfForm.data( 'pfPopupSubmit' );
+					if ( typeof popupSubmit === 'function' ) {
+						$pfForm.data( 'submitted', true );
+						popupSubmit( event );
+						return true;
+					}
+					const $buttonValue = submitter && submitter.name ? $( '<input>' ).attr( {
+						type: 'hidden', name: submitter.name, value: submitter.value
+					} ).appendTo( form ) : $();
+					$pfForm.data( 'submitted', true );
+					HTMLFormElement.prototype.submit.call( form );
+					$buttonValue.remove();
+					return true;
+				} );
+			} );
 
 			} finally {
 				$( '#loadingMask' ).removeClass( 'pf-loading-mask--active' );
