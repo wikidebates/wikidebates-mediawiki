@@ -23,22 +23,22 @@ function autoGrow( textArea ) {
 }
 
 function autoGrowBindEvents( textArea ) {
-	textArea.addEventListener( 'input', function () {
+	textArea.addEventListener( 'input', () => {
 		autoGrow( textArea );
 	} );
 
 	if ( textArea.classList.contains( 'pf-singleline-text' ) ) {
-		textArea.addEventListener( 'keydown', function( e ) {
+		textArea.addEventListener( 'keydown', ( e ) => {
 			if ( e.key === 'Enter' ) {
 				e.preventDefault();
 			}
 		} );
 
-		textArea.addEventListener( 'paste', function( e ) {
+		textArea.addEventListener( 'paste', ( e ) => {
 			const clipboard = e.clipboardData || window.clipboardData;
 			const text = clipboard ? clipboard.getData( 'text' ) : '';
 
-			if ( text.indexOf( '\n' ) !== -1 || text.indexOf( '\r' ) !== -1 ) {
+			if ( text.includes( '\n' ) || text.includes( '\r' ) ) {
 				e.preventDefault();
 
 				const normalizedText = text.replace( /[\r\n]+/g, ' ' );

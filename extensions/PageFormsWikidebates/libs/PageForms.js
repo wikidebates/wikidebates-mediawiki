@@ -1966,7 +1966,7 @@ $.fn.initializeJSElements = function( partOfMultiple ) {
 
 			$instance.addClass( 'pf-removing-instance' );
 
-			window.setTimeout( function() {
+			window.setTimeout( () => {
 				$instance.find( 'input, select, textarea' ).each( function() {
 					$( this ).PageForms_unregisterInputInit();
 					$( this ).PageForms_unregisterInputValidation();

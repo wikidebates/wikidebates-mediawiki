@@ -376,7 +376,7 @@
 		}
 
 		if ( isDependentField && Array.isArray( dependentValues ) && currentValue !== '' ) {
-			shouldKeepValue = dependentValues.indexOf( currentValue ) !== -1 || !this.existingValuesOnly;
+			shouldKeepValue = dependentValues.includes( currentValue ) || !this.existingValuesOnly;
 		}
 
 		if ( $element.data( 'select2' ) ) {

@@ -52,7 +52,7 @@ window.ext.popupform = ( function() {
 	const padding = 20;
 	let reload;
 	function setVisible( $elem, isVisible, callback, duration ) {
-		const transitionDuration = duration ?? 200;
+		const transitionDuration = ( duration === undefined || duration === null ) ? 200 : duration;
 
 		if ( brokenBrowser ) {
 			$elem.toggle( isVisible );
