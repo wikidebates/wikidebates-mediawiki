@@ -44,7 +44,7 @@
 	branch = REL1_43
 [submodule "extensions/ReplaceText"]
 	path = extensions/ReplaceText
-	url = git@github.com:wikidebates/wikidebates-replacetext.git
+	url = git@github.com:wikidebates/wikidebates-replacetext-custom.git
 	branch = integration-REL1_43-1.43.11
 [submodule "extensions/Scribunto"]
 	path = extensions/Scribunto
@@ -100,7 +100,7 @@
 	branch = wikidebates-REL1_44
 [submodule "extensions/Wikidebates"]
 	path = extensions/Wikidebates
-	url = git@github.com:wikidebates/wikidebates-extension.git
+	url = git@github.com:wikidebates/wikidebates-core.git
 [submodule "extensions/AdvancedSearch"]
 	path = extensions/AdvancedSearch
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/AdvancedSearch
